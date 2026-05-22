@@ -94,6 +94,38 @@ const makeRouter = createRouter({
 
 Use array form to compose multiple concerns (scope check + request log + audit). Each middleware can call `next()` to continue or return a `Response` to short-circuit, exactly like a regular Hono middleware.
 
+#### `base` — shared RouteConfig fragment
+
+A partial `RouteConfig` deep-merged into every route declared by this router. Per-route values win on key conflicts; arrays (e.g. `security`, `tags`) are concatenated and structurally deduplicated; **two zod schemas at the same position are unioned** (`base.or(route)`) so a per-route `422` schema is combined with the base `422` schema rather than replacing it. The merged shape is reflected in the static type returned by `route()`, so handlers see the combined `responses`/`request` schema (with `ZodUnion<[base, route]>` at colliding schema slots).
+
+```ts
+const unauthorized = makeHonoResponse(z.object({ error: z.string() }), 'Unauthorized');
+
+const makeRouter = createRouter({
+  base: { responses: { 401: unauthorized } },
+});
+
+makeRouter(rootRoute, ({ router, route }) => {
+  const list = route('get', { responses: { 200: okResponse } });
+  // `list.responses` is typed with both `200` and `401`.
+  router.openapi(list, (c) => c.json({ ok: true }));
+  return router;
+});
+```
+
+#### `transformRoute` — runtime-only config transformer
+
+A hook of the form `(config: RouteConfig) => RouteConfig`. It runs immediately after the resolved `RouteConfig` is produced (and after any `base` merge), and *before* `routeMiddleware` factories see it. The static type of the returned config is unchanged — this is purely a runtime escape hatch for cross-cutting mutations (auto-tagging, injecting metadata, normalizing security entries, etc.).
+
+```ts
+const makeRouter = createRouter({
+  transformRoute: (route) => ({
+    ...route,
+    tags: [...(route.tags ?? []), `${route.method}:${route.path}`],
+  }),
+});
+```
+
 ### `route(method, config)`
 
 Inside a router factory, `route()` builds and returns a `createRoute()` config with its path locked to the context's path. The returned config feeds straight into `router.openapi(config, handler)`.
