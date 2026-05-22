@@ -341,6 +341,66 @@ const makeRouter = createRouter({
 
 The factories run in order at declaration; the resulting middlewares run in order at request time.
 
+## Sharing a `base` RouteConfig across every route
+
+Use `base` to deep-merge a partial `RouteConfig` into every route built by this `makeRouter`. Common cases: a shared `401`/`403`/`422` response, project-wide `security`, default `tags`. Per-route values override base; arrays concat + dedupe; zod schemas at the same slot are unioned.
+
+```ts
+const Unauthorized = z.object({ error: z.literal('UNAUTHORIZED') });
+const Forbidden = z.object({ error: z.literal('FORBIDDEN') });
+const BaseValidation = z.object({ code: z.literal('BASE_INVALID'), issues: z.array(z.string()) });
+
+const makeRouter = createRouter({
+  base: {
+    tags: ['v1'],
+    responses: {
+      401: makeHonoResponse(Unauthorized, 'Unauthorized'),
+      403: makeHonoResponse(Forbidden, 'Forbidden'),
+      422: makeHonoResponse(BaseValidation, 'Validation error (default)'),
+    },
+  },
+});
+
+const things = makeRouter(thingsRoute, ({ router, route }) => {
+  const RouteValidation = z.object({ code: z.literal('NAME_TOO_LONG') });
+
+  const create = route('post', {
+    tags: ['things'], // merged → ['v1', 'things']
+    request: makeHonoJsonRequest(CreateThing, 'Create a thing'),
+    responses: {
+      201: makeHonoResponse(Thing, 'Created'),
+      422: makeHonoResponse(RouteValidation, 'Validation error (route)'),
+      // 401 + 403 inherited from base; 422 schema becomes
+      // ZodUnion<[BaseValidation, RouteValidation]> at both type & runtime.
+    },
+  });
+
+  router.openapi(create, async (c) => c.json(await db.things.create(c.req.valid('json')), 201));
+  return router;
+});
+```
+
+The handler now has to satisfy a `responses` object containing `201`, `401`, `403`, *and* `422` — TypeScript will tell you if you forgot a discriminant in a returned union body.
+
+## Mutating every RouteConfig at runtime with `transformRoute`
+
+`transformRoute` is a `(RouteConfig) => RouteConfig` hook that runs after `createRoute()` (and after the `base` merge), before the config is handed to `routeMiddleware` factories. It does **not** change the static return type of `route()`; use it for runtime-only enrichments.
+
+```ts
+const makeRouter = createRouter({
+  transformRoute: (route) => ({
+    ...route,
+    operationId: route.operationId ?? `${route.method}_${route.path.replace(/[^a-z0-9]+/gi, '_')}`,
+    tags: [...new Set([...(route.tags ?? []), `${route.method.toUpperCase()} ${route.path}`])],
+  }),
+});
+```
+
+Typical uses:
+- Auto-derive `operationId` from method + path.
+- Inject environment-specific tags (`tags: [...route.tags ?? [], process.env.STAGE]`).
+- Normalize `security` to always include a default scheme.
+
 ## Opting a route out of the global policy
 
 Two idiomatic options.

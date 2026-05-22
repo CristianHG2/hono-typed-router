@@ -42,18 +42,42 @@ interface RouteContext<TPath extends string, TVars extends object> {
 ## `createRouter(options?)`
 
 ```ts
-function createRouter(options?: CreateRouterOptions): MakeRouterFn;
+function createRouter<const TBase extends BaseRouteConfig = {}>(
+  options?: CreateRouterOptions<TBase>,
+): MakeRouterFn<TBase>;
 
-interface CreateRouterOptions {
+interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
   routeMiddleware?: RouteMiddlewareFactory | RouteMiddlewareFactory[];
+  base?: TBase;
+  transformRoute?: (config: RouteConfig) => RouteConfig;
 }
 
+type BaseRouteConfig = Partial<Omit<RouteConfig, 'method' | 'path'>>;
 type RouteMiddlewareFactory = (route: RouteConfig) => MiddlewareHandler;
 ```
 
-Returns a `makeRouter`. The `routeMiddleware` factories are invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output). The returned middlewares are attached to the route's exact method + path. They are method-gated, so other methods on the same path are unaffected.
+Returns a `makeRouter`. Options:
 
-When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract.
+- **`routeMiddleware`** — factories invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output). The returned middlewares are attached to the route's exact method + path and are method-gated, so other methods on the same path are unaffected. When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract.
+
+- **`base`** — a partial `RouteConfig` deep-merged into every route declared via this router. Pipeline order: `base` ⊕ per-route config → `createRoute()` → `transformRoute` → `routeMiddleware` factories → returned to caller. Merge rules:
+  - **Plain objects** recurse key-by-key (e.g. `responses[200]`, `request.params`).
+  - **Arrays** are concatenated and structurally deduplicated (e.g. `security`, `tags`).
+  - **Zod schemas** at the same merge position are unioned via `baseSchema.or(routeSchema)`. Useful when both `base` and the route declare e.g. `responses[422]` with different validation-error shapes.
+  - **All other leaf conflicts** are won by the per-route value.
+
+  The merged shape is reflected in the static return type of `route()`, so handlers see the combined `responses`/`request` (with `ZodUnion<readonly [base, route]>` at colliding schema slots).
+
+- **`transformRoute`** — a runtime-only `(RouteConfig) => RouteConfig` hook applied immediately after `createRoute()` (and after the `base` merge), before `routeMiddleware` factories receive the config and before it is returned to the caller. The static return type of `route()` is **not** affected by this hook; it is an escape hatch for cross-cutting mutations (auto-tagging, injecting `operationId`, normalizing security entries, etc.).
+
+## `BaseRouteConfig` and `DeepMerge<A, B>`
+
+```ts
+type BaseRouteConfig = Partial<Omit<RouteConfig, 'method' | 'path'>>;
+type DeepMerge<A, B> = /* see source */;
+```
+
+Exported as type-only helpers. `DeepMerge` is the type-level equivalent of the runtime merge: it recurses through plain objects, tuple-concatenates arrays, produces `ZodUnion<readonly [A, B]>` when both sides are `ZodType`, and otherwise has the second argument win. Use it to type external wrappers that build configs from the same `base`.
 
 ## `makeRouter(context, factory, children?)`
 
@@ -62,11 +86,13 @@ function makeRouter<TPath, TVars, TFactoryResult>(
   context: RouteContext<TPath, TVars>,
   factory: (options: {
     router: OpenAPIHono<{ Variables: TVars }>;
-    route: MakeRouteFn<TPath>;
+    route: MakeRouteFn<TPath, TBase>;
   }) => TFactoryResult,
   children?: (() => OpenAPIHono<any, any, any>)[],
 ): () => TFactoryResult;
 ```
+
+`TBase` is threaded from `createRouter`'s options, so `route()`'s return type reflects the configured `base`.
 
 Returns a **thunk** that, when invoked, builds and returns the router. The deferred invocation allows children to be mounted by a parent without ordering issues.
 
