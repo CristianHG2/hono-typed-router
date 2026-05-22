@@ -1,0 +1,81 @@
+{
+  "name": "hono-typed-router",
+  "version": "0.1.0",
+  "description": "Path-typed router builder for Hono with composable middleware contexts and per-route policy hooks.",
+  "keywords": [
+    "hono",
+    "router",
+    "openapi",
+    "zod",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "CristianHG2 (https://github.com/CristianHG2)",
+  "homepage": "https://github.com/CristianHG2/hono-typed-router#readme",
+  "bugs": {
+    "url": "https://github.com/CristianHG2/hono-typed-router/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CristianHG2/hono-typed-router.git"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./scopes": {
+      "import": {
+        "types": "./dist/scopes.d.ts",
+        "default": "./dist/scopes.js"
+      },
+      "require": {
+        "types": "./dist/scopes.d.cts",
+        "default": "./dist/scopes.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:types": "tsc -p tsconfig.test-types.json --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "peerDependencies": {
+    "@hono/zod-openapi": "^1.1.5",
+    "hono": "^4.12.4",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@hono/zod-openapi": "^1.1.5",
+    "@types/node": "^22.13.11",
+    "expect-type": "^1.2.0",
+    "hono": "^4.12.4",
+    "tsdown": "^0.15.5",
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.17",
+    "zod": "4.1.12"
+  },
+  "packageManager": "pnpm@10.26.2"
+}

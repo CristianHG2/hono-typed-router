@@ -1,0 +1,10 @@
+src
+node_modules
+coverage
+*.tsbuildinfo
+tsconfig*.json
+tsdown.config.ts
+vitest.config.ts
+.gitignore
+.github
+.DS_Store
