@@ -176,11 +176,102 @@ const route = createRoute({
 });
 ```
 
+## Type-safe error handling
+
+`handler(c, fn)` wraps a route handler body with a destructurable view over the
+request's validated inputs and an opt-in `.errors([...])` step. Each validation
+target (`param`, `query`, `json`, ...) is read from `c.req.valid` lazily and
+cached, so untouched targets are never read and touched ones are read once.
+
+```ts
+import { handler, on, rethrow } from 'hono-typed-router';
+
+router.openapi(getThing, (c) =>
+  handler(c, async ({ param: { id } }) => c.json(await findOrFail(id), 200))
+    .errors([
+      on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Not found' }, 404)),
+    ]),
+);
+```
+
+- `on(ErrorClass, (err, c) => response)` declares an **error arm**: match errors
+  that are `instanceof ErrorClass`, then produce a response. Arms are tried in
+  order; return `rethrow()` from an arm to defer to the next one (or, if none
+  matches, to rethrow the original error).
+- `.errors([...])` runs the body under the arms and **widens the result type with
+  each arm's response**. Because those responses flow into the value returned to
+  `router.openapi(...)`, wiring an arm that emits a status the route did not
+  declare in `responses` is a **compile error** — the OpenAPI contract and the
+  runtime handler cannot drift apart.
+- Awaiting the invocation without `.errors([...])` runs the body directly (the
+  body executes at most once either way).
+
+`handleErrors(body, arms, c)` is the same dispatch without the input proxy, for
+when you only need the error handling. Arms are reusable — factor common ones
+(`recordNotFoundArm`, `uniqueViolationArm`, ...) into helpers that call `on`.
+
+## Extending the `define[x]` context
+
+`extendRouteContext` adds custom, type-safe builder methods to `defineRootRoute`
+and `defineChildRoute` — generalizing the "load `:id` once, expose it on `c.var`"
+pattern into a first-class method. Each method threads the route's path and
+accumulated vars, and the augmentation is re-applied automatically through
+`.middleware()` and through the methods' own return values, so the builders are
+never lost mid-chain.
+
+Describe the extended context as a self-referential interface extending
+`RouteContextBase`, pair it with a one-line `RouteContextKind`, then pass the kind
+as the type argument and the runtime builders as the argument:
+
+```ts
+import { extendRouteContext } from 'hono-typed-router';
+import type {
+  ReaugmentContext,
+  RouteContextBase,
+  RouteContextKind,
+} from 'hono-typed-router';
+import type { MiddlewareHandler } from 'hono';
+import type { ParamKeys } from 'hono/types';
+
+interface Ctx<TPath extends string, TVars extends object>
+  extends RouteContextBase<CtxKind, TPath, TVars> {
+  bindRepository: <TKey extends string, TRepo>(
+    key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+    param: ParamKeys<TPath>,
+    repository: () => TRepo,
+  ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: RelationsFor<TRepo> }>;
+}
+interface CtxKind extends RouteContextKind {
+  type: Ctx<this['path'] & string, this['vars'] & object>;
+}
+
+const { defineRootRoute, defineChildRoute } = extendRouteContext<CtxKind>({
+  bindRepository: (ctx) => (key, param, repository) => {
+    // The handler sets a var the loose builder context can't name; type it as a
+    // plain MiddlewareHandler and cast when handing it to ctx.middleware().
+    const mw: MiddlewareHandler = async (c, next) => {
+      c.set(key, relationsFor(repository(), c.req.param(param)));
+      await next();
+    };
+    return ctx.middleware(mw as never);
+  },
+});
+
+// `orgRoute.vars.organization` is typed; `bindRepository` and `.middleware()`
+// remain available for further chaining.
+const orgRoute = defineChildRoute<typeof rootRoute>()('/organizations/:organizationId')
+  .bindRepository('organization', 'organizationId', () => organizationsRepository);
+```
+
+The `key` guard rejects redeclaring an existing var, and `param` is constrained to
+the route's path parameters — both enforced at the type level.
+
 ## Recipes
 
 ### Binding a repository to a path parameter
 
-The common "load `:id` once, expose it on `c.var`" pattern is a thin wrapper around `.middleware`:
+For a one-off (without `extendRouteContext`), the pattern is a thin wrapper around
+`.middleware`:
 
 ```ts
 import type { RouteContext } from 'hono-typed-router';

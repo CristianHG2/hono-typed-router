@@ -1,6 +1,6 @@
 {
   "name": "hono-typed-router",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Path-typed router builder for Hono with composable middleware contexts and per-route policy hooks.",
   "keywords": [
     "hono",
