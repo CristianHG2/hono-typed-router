@@ -455,6 +455,103 @@ const makeRouter = createRouter({
 });
 ```
 
+## Type-safe error handling in handlers
+
+Where `routeMiddleware` handles cross-cutting policy, `handler(c, fn).errors([...])`
+handles per-handler failures — mapping thrown domain errors to responses while
+keeping the OpenAPI contract honest.
+
+```ts
+import { handler, on, rethrow } from 'hono-typed-router';
+
+const getThing = route('get', {
+  request: { params: thingIdParam },
+  responses: {
+    200: makeHonoResponse(Thing, 'The thing'),
+    404: makeHonoResponse(ErrorBody, 'Not found'),
+    409: makeHonoResponse(ErrorBody, 'Conflict'),
+  },
+});
+
+router.openapi(getThing, (c) =>
+  handler(c, async ({ param: { id } }) => c.json(await thingsRepo.findOrFail(id), 200))
+    .errors([
+      on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Thing not found' }, 404)),
+      on(UniqueConstraintError, (err, ec) => {
+        if (!err.columns.includes('slug')) return rethrow(); // defer to a later arm / rethrow
+        return ec.json({ message: 'Slug already taken' }, 409);
+      }),
+    ]),
+);
+```
+
+Key points:
+
+- `fn` receives a **destructurable proxy** over validated inputs (`{ param, query, json, ... }`), each typed from the route. Targets are read lazily from `c.req.valid` and cached, so untouched targets are never read.
+- `.errors([...])` runs the body under the arms and **widens the return type with each arm's response**. Since that value is what `router.openapi(...)` type-checks, an arm returning a status the route did not declare in `responses` (or a body body shape that doesn't match) is a **compile error**. Remove the `404`/`409` from `responses` above and the handler stops type-checking.
+- Arms are reusable. Factor common ones into helpers:
+
+  ```ts
+  export const recordNotFoundArm = (message: string) =>
+    on(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+  ```
+
+- Need the dispatch without the input proxy? Use `handleErrors(body, arms, c)` directly — same semantics, same widened return type.
+
+## Adding custom builders with `extendRouteContext`
+
+The "load `:id` once, expose it on `c.var`" pattern (and similar context builders)
+can be promoted to a first-class, type-safe method on `defineRootRoute` /
+`defineChildRoute`.
+
+```ts
+import { extendRouteContext } from 'hono-typed-router';
+import type {
+  ReaugmentContext,
+  RouteContextBase,
+  RouteContextKind,
+} from 'hono-typed-router';
+import type { MiddlewareHandler } from 'hono';
+import type { ParamKeys } from 'hono/types';
+
+// 1. Describe the extended context as a self-referential interface.
+interface Ctx<TPath extends string, TVars extends object>
+  extends RouteContextBase<CtxKind, TPath, TVars> {
+  bindRepository: <TKey extends string, TRepo extends { findOrFail(id: string): unknown }>(
+    key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+    param: ParamKeys<TPath>,
+    repository: () => TRepo,
+  ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: Awaited<ReturnType<TRepo['findOrFail']>> }>;
+}
+// 2. One-line kind pairing the interface to its type parameters.
+interface CtxKind extends RouteContextKind {
+  type: Ctx<this['path'] & string, this['vars'] & object>;
+}
+
+// 3. Provide the runtime builders; ctx.middleware() already re-augments.
+//    The handler sets a var the loose builder context can't name, so type it as a
+//    plain MiddlewareHandler and cast when handing it to ctx.middleware().
+export const { defineRootRoute, defineChildRoute } = extendRouteContext<CtxKind>({
+  bindRepository: (ctx) => (key, param, repository) => {
+    const mw: MiddlewareHandler = async (c, next) => {
+      c.set(key, await repository().findOrFail(c.req.param(param)));
+      await next();
+    };
+    return ctx.middleware(mw as never);
+  },
+});
+
+// 4. Use it — fully typed, chainable, and still exposes `.middleware()`.
+const orgRoute = defineChildRoute<typeof rootRoute>()('/organizations/:organizationId')
+  .bindRepository('organization', 'organizationId', () => organizationsRepository);
+//    orgRoute.vars.organization is typed; bindRepository/middleware remain available.
+```
+
+The `key` argument rejects redeclaring an existing var, and `param` is constrained
+to the route's path parameters — both at the type level. Because the extended
+context is an **interface**, chaining is unbounded without tripping TypeScript's
+recursion limit.
+
 ## Testing a router
 
 `OpenAPIHono` exposes `.request(path, init?)` — a fetch-style call against the in-process app. No server needed.

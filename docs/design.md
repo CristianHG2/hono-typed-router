@@ -57,9 +57,26 @@ The hook runs *after* the `base` merge and *before* `routeMiddleware` factories.
 - `routeMiddleware` factories — which often precompute scope sets or audit metadata from the route — see the transformed config, so derived fields like `operationId` are observable to them.
 - The caller of `route()` receives the transformed config, so the value handed to `router.openapi(declared, handler)` reflects the runtime truth.
 
+## Error handling — `handler` + `on`/`handleErrors`
+
+The value `handler(c, fn).errors([...])` adds is a **type-level bridge between the arms you wire and the responses the route declares**. `handleErrors` widens its return type with each arm's response (`Exclude<Awaited<ArmResults>, Rethrow>`), and that widened value is what `router.openapi(declared, handler)` type-checks against the route's `responses`. So an arm that emits a `409` the route never declared — or a body whose shape doesn't match — is a compile error, not a runtime surprise. The OpenAPI contract and the runtime error mapping are forced to agree.
+
+A few deliberate details:
+
+- **`Exclude<Awaited<TResult>, Rethrow>`, not `Exclude<TResult, Rethrow>`.** An arm that can `rethrow()` infers `TResult` including a `Promise<Rethrow>` branch; without the `Awaited`, the sentinel survives `Exclude` and leaks a bare `symbol` into the response union. Awaiting first collapses both the promise and the sentinel, and hardens async arms generally.
+- **The input proxy is lazy and cached.** `fn` sees `{ param, query, json, ... }` but each target is only pulled from `c.req.valid` when destructured, and only once. Untouched targets cost nothing.
+- **The body runs at most once.** The invocation is a thenable; awaiting it directly and awaiting `.errors([...])` settle the same underlying promise.
+- **Arms are values, reused across routes.** `on(Ctor, handler)` returns a plain `ErrorArm`. The domain-specific arms (`recordNotFoundArm`, `uniqueViolationArm`, …) are userland one-liners over `on`; the library ships only the generic dispatch.
+
+## `extendRouteContext` — type-safe context augmentation
+
+Binding a repository to a `:param` is common enough that hand-rolling the recursive "augment the context, re-augment after `.middleware()`" wrapper each time is a papercut. `extendRouteContext` owns that recursion so a consumer only declares the method signatures.
+
+The design constraint that shaped the API: **the extended context must be an `interface`, not a mapped-type alias.** A fully auto-derived approach (map the extension set to methods, have each method's return re-derive the context) trips TypeScript's "excessively deep, possibly infinite" instantiation, because a type alias is expanded eagerly during instantiation while an interface stays a lazy reference — exactly how the base `RouteContext.middleware` chains without blowing up. So the consumer supplies a self-referential interface extending `RouteContextBase` plus a one-line `RouteContextKind` (a higher-kinded slot that lets `extendRouteContext` apply an unapplied two-parameter interface). In exchange, chaining is unbounded and every method threads path + vars with the same redeclaration guard and `ParamKeys` constraint the base `.middleware()` uses.
+
 ## What this package deliberately omits
 
-- **Domain coupling.** No repository binding, no scope enum, no auth glue. The HR Papa codebase that this was extracted from binds repositories to params and checks against a `Scope` union; both are 10-line userland wrappers (see the README recipes).
+- **Domain coupling.** No repository *implementation*, no scope enum, no auth glue. `extendRouteContext` provides the *mechanism* to add a `bindRepository`-style builder, and `on`/`handleErrors` the mechanism to map domain errors to responses — but the actual repositories, error classes, and scope unions stay in userland (see the README recipes).
 - **A generic "validate this before/after the handler" lifecycle.** That's `routeMiddleware`'s job. If a use case can be expressed as Hono middleware, it should be.
 - **Catch-all error mapping.** Hono's `app.onError` already handles that.
 
