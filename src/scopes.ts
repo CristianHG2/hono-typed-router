@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import type { RouteConfig } from '@hono/zod-openapi';
 import type { RouteMiddlewareFactory } from './router';
 
@@ -24,15 +24,14 @@ export interface ScopeMiddlewareOptions {
  * Scopes are extracted from every entry in `route.security`, flattened across schemes,
  * and deduplicated. If a route has no `security`, the middleware is a no-op.
  */
-export const createScopeMiddleware = (
-  options: ScopeMiddlewareOptions,
-): RouteMiddlewareFactory => {
+export const createScopeMiddleware = (options: ScopeMiddlewareOptions): RouteMiddlewareFactory => {
   return (route) => {
     const required = extractRequiredScopes(route);
 
-    return async (c, next) => {
+    const middleware: MiddlewareHandler = async (c, next) => {
       if (required.length === 0) {
         await next();
+
         return;
       }
 
@@ -53,6 +52,16 @@ export const createScopeMiddleware = (
 
       await next();
     };
+
+    // Name it so `showRoutes` and stack traces show which scopes a route requires. No
+    // spaces or parentheses, which stack-trace parsers treat as separators.
+    const name = required.length > 0 ? `requireScopes:${required.join('+')}` : 'requireScopes';
+    Object.defineProperty(middleware, 'name', {
+      value: name.replaceAll(/[\s()]/g, '_'),
+      configurable: true,
+    });
+
+    return middleware;
   };
 };
 
@@ -60,13 +69,16 @@ const extractRequiredScopes = (route: RouteConfig): string[] => {
   if (!route.security || route.security.length === 0) return [];
 
   const seen = new Set<string>();
+
   for (const entry of route.security) {
     for (const scopes of Object.values(entry)) {
       if (!Array.isArray(scopes)) continue;
+
       for (const scope of scopes) {
         if (typeof scope === 'string') seen.add(scope);
       }
     }
   }
+
   return [...seen];
 };

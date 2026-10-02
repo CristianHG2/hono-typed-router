@@ -1,6 +1,8 @@
 import type { Context, Input } from 'hono';
 import type { InputToDataByTarget, ValidationTargets } from 'hono/types';
-import type { ErrorArm, RETHROW } from '../errors';
+import type { AnyArm, ArmsResponse } from '../errors/lib';
+
+export type { AnyArm, ArmsResponse };
 
 /**
  * Destructurable view over a route's validated inputs. Each key is a Hono
@@ -10,15 +12,6 @@ import type { ErrorArm, RETHROW } from '../errors';
 export type ValidatedProxy<I extends Input> = {
   [K in keyof ValidationTargets]: InputToDataByTarget<I['out'], K>;
 };
-
-export type AnyArm = ErrorArm<any, any>;
-
-type ArmResponse<TArm> = TArm extends ErrorArm<any, infer TResult>
-  ? Exclude<Awaited<TResult>, typeof RETHROW>
-  : never;
-
-/** Union of the response types produced by a tuple of arms (sans `Rethrow`). */
-export type ArmsResponse<TArms extends ReadonlyArray<AnyArm>> = ArmResponse<TArms[number]>;
 
 /**
  * Awaitable result of {@link handler}. Behaves as `Promise<TResponse>` on its own;

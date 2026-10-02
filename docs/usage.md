@@ -12,7 +12,7 @@ The library does not enforce a file structure, but it is designed to be used **o
 - **Directories mirror the URL.** `/api/organizations/:orgId/departments` → `routes/organizations/[orgId]/departments/index.ts`.
 - **Dynamic segments use `[brackets]` in folder/file names** — they map to `:colon` segments in the path string. `[orgId]` ↔ `:orgId`.
 - **`index.ts` = the collection** (`/things`); **`[id].ts` = the item** (`/things/:id`).
-- **Each file exports its `RouteContext` *and* its built router.** The context is imported by child files; the router is mounted by the parent.
+- **Each file exports its `RouteContext` _and_ its built router.** The context is imported by child files; the router is mounted by the parent.
 - **The root file (`routes/index.ts`) lists all top-level children**, each child file lists its own grandchildren, and so on. There is no central registry — the tree composes itself.
 
 ### Example tree
@@ -118,9 +118,8 @@ import { defineChildRoute, makeHonoNoContentResponse } from 'hono-typed-router';
 import { organizationDepartmentsRoute } from '.';
 import { makeRouter } from '../../../_router';
 
-export const organizationDepartmentRoute = defineChildRoute<typeof organizationDepartmentsRoute>()(
-  '/:departmentId',
-);
+export const organizationDepartmentRoute =
+  defineChildRoute<typeof organizationDepartmentsRoute>()('/:departmentId');
 
 export const organizationDepartmentRouter = makeRouter(
   organizationDepartmentRoute,
@@ -380,7 +379,7 @@ const things = makeRouter(thingsRoute, ({ router, route }) => {
 });
 ```
 
-The handler now has to satisfy a `responses` object containing `201`, `401`, `403`, *and* `422` — TypeScript will tell you if you forgot a discriminant in a returned union body.
+The handler now has to satisfy a `responses` object containing `201`, `401`, `403`, _and_ `422` — TypeScript will tell you if you forgot a discriminant in a returned union body.
 
 ## Mutating every RouteConfig at runtime with `transformRoute`
 
@@ -390,14 +389,19 @@ The handler now has to satisfy a `responses` object containing `201`, `401`, `40
 const makeRouter = createRouter({
   transformRoute: (route) => ({
     ...route,
-    operationId: route.operationId ?? `${route.method}_${route.path.replace(/[^a-z0-9]+/gi, '_')}`,
-    tags: [...new Set([...(route.tags ?? []), `${route.method.toUpperCase()} ${route.path}`])],
+    summary: route.summary ?? route.operationId,
+    tags: [...new Set([...(route.tags ?? []), route.method === 'get' ? 'read' : 'write'])],
   }),
 });
 ```
 
+`route.path` is `'/'` here (unless `transformRoute` rewrites it): the full path lives on the router's base path,
+not on the config. Do not derive `operationId` from it (every route would get the
+same one); set `operationId` on each route instead.
+
 Typical uses:
-- Auto-derive `operationId` from method + path.
+
+- Fill in a default `summary` from the route's `operationId`.
 - Inject environment-specific tags (`tags: [...route.tags ?? [], process.env.STAGE]`).
 - Normalize `security` to always include a default scheme.
 
@@ -427,8 +431,8 @@ route('get', { tags: ['public'], responses: { 200: okResponse } });
 const makeAuthedRouter = createRouter({ routeMiddleware: scopeCheck });
 const makePublicRouter = createRouter();
 
-const health = makePublicRouter(defineChildRoute<typeof apiRoute>()('/health'), /* ... */);
-const things = makeAuthedRouter(defineChildRoute<typeof apiRoute>()('/things'), /* ... */);
+const health = makePublicRouter(defineChildRoute<typeof apiRoute>()('/health') /* ... */);
+const things = makeAuthedRouter(defineChildRoute<typeof apiRoute>()('/things') /* ... */);
 
 const app = makeAuthedRouter(apiRoute, ({ router }) => router, [health, things])();
 ```
@@ -441,11 +445,9 @@ Returning a `Response` from a `routeMiddleware` short-circuits the chain. Use th
 const rateLimit = (limiter: Limiter) => () => async (c: Context, next: Next) => {
   const verdict = await limiter.check(c.req.header('x-api-key') ?? '');
   if (!verdict.allowed) {
-    return c.json(
-      { error: 'RATE_LIMITED', retryAfterSeconds: verdict.retryAfter },
-      429,
-      { 'Retry-After': String(verdict.retryAfter) },
-    );
+    return c.json({ error: 'RATE_LIMITED', retryAfterSeconds: verdict.retryAfter }, 429, {
+      'Retry-After': String(verdict.retryAfter),
+    });
   }
   await next();
 };
@@ -474,14 +476,13 @@ const getThing = route('get', {
 });
 
 router.openapi(getThing, (c) =>
-  handler(c, async ({ param: { id } }) => c.json(await thingsRepo.findOrFail(id), 200))
-    .errors([
-      on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Thing not found' }, 404)),
-      on(UniqueConstraintError, (err, ec) => {
-        if (!err.columns.includes('slug')) return rethrow(); // defer to a later arm / rethrow
-        return ec.json({ message: 'Slug already taken' }, 409);
-      }),
-    ]),
+  handler(c, async ({ param: { id } }) => c.json(await thingsRepo.findOrFail(id), 200)).errors([
+    on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Thing not found' }, 404)),
+    on(UniqueConstraintError, (err, ec) => {
+      if (!err.columns.includes('slug')) return rethrow(); // defer to a later arm / rethrow
+      return ec.json({ message: 'Slug already taken' }, 409);
+    }),
+  ]),
 );
 ```
 
@@ -506,22 +507,25 @@ can be promoted to a first-class, type-safe method on `defineRootRoute` /
 
 ```ts
 import { extendRouteContext } from 'hono-typed-router';
-import type {
-  ReaugmentContext,
-  RouteContextBase,
-  RouteContextKind,
-} from 'hono-typed-router';
+import type { ReaugmentContext, RouteContextBase, RouteContextKind } from 'hono-typed-router';
 import type { MiddlewareHandler } from 'hono';
 import type { ParamKeys } from 'hono/types';
 
 // 1. Describe the extended context as a self-referential interface.
-interface Ctx<TPath extends string, TVars extends object>
-  extends RouteContextBase<CtxKind, TPath, TVars> {
+interface Ctx<TPath extends string, TVars extends object> extends RouteContextBase<
+  CtxKind,
+  TPath,
+  TVars
+> {
   bindRepository: <TKey extends string, TRepo extends { findOrFail(id: string): unknown }>(
     key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
     param: ParamKeys<TPath>,
     repository: () => TRepo,
-  ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: Awaited<ReturnType<TRepo['findOrFail']>> }>;
+  ) => ReaugmentContext<
+    CtxKind,
+    TPath,
+    TVars & { [K in TKey]: Awaited<ReturnType<TRepo['findOrFail']>> }
+  >;
 }
 // 2. One-line kind pairing the interface to its type parameters.
 interface CtxKind extends RouteContextKind {
@@ -529,21 +533,20 @@ interface CtxKind extends RouteContextKind {
 }
 
 // 3. Provide the runtime builders; ctx.middleware() already re-augments.
-//    The handler sets a var the loose builder context can't name, so type it as a
-//    plain MiddlewareHandler and cast when handing it to ctx.middleware().
 export const { defineRootRoute, defineChildRoute } = extendRouteContext<CtxKind>({
   bindRepository: (ctx) => (key, param, repository) => {
     const mw: MiddlewareHandler = async (c, next) => {
       c.set(key, await repository().findOrFail(c.req.param(param)));
       await next();
     };
-    return ctx.middleware(mw as never);
+    return ctx.middleware(mw);
   },
 });
 
 // 4. Use it — fully typed, chainable, and still exposes `.middleware()`.
-const orgRoute = defineChildRoute<typeof rootRoute>()('/organizations/:organizationId')
-  .bindRepository('organization', 'organizationId', () => organizationsRepository);
+const orgRoute = defineChildRoute<typeof rootRoute>()(
+  '/organizations/:organizationId',
+).bindRepository('organization', 'organizationId', () => organizationsRepository);
 //    orgRoute.vars.organization is typed; bindRepository/middleware remain available.
 ```
 

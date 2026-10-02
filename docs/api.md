@@ -16,10 +16,14 @@ Creates the root `RouteContext`. The `path` is preserved as a literal type. `mid
 ## `defineChildRoute<typeof parent>()(path)`
 
 ```ts
-function defineChildRoute<TParentContext>(): <TPath extends string>(
+function defineChildRoute<TParentContext extends { path: string; vars: object }>(): <
+  TPath extends string,
+>(
   path: TPath,
-) => RouteContext<`${ParentPath}${TPath}`, ParentVars>;
+) => RouteContext<`${TParentContext['path']}${TPath}`, TParentContext['vars']>;
 ```
+
+Any `{ path; vars }` shape is accepted as the parent, including extended contexts.
 
 Creates a child `RouteContext`. The double invocation is intentional — TypeScript can infer the path type literal only when the parent type is supplied explicitly in the first call.
 
@@ -37,7 +41,7 @@ interface RouteContext<TPath extends string, TVars extends object> {
 - `path` — the literal path string carried at the type level.
 - `vars` — a phantom value of the accumulated variables; useful only for type inspection.
 - `middlewares` — the runtime list of middlewares applied by `makeRouter`.
-- `middleware<NewVars>(handler)` — returns a new context with `handler` appended and `NewVars` merged into `TVars`. Attempting to redeclare an existing key produces a string-typed error position rather than accepting the handler.
+- `middleware<NewVars>(handler)` — returns a new context with `handler` appended and `NewVars` merged into `TVars`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>"`: redeclaring fails on the type argument with a single error, and the handler keeps its contextual types. Without a type argument, `NewVars` defaults to `{}` (or is inferred from a pre-typed handler).
 
 ## `createRouter(options?)`
 
@@ -58,7 +62,7 @@ type RouteMiddlewareFactory = (route: RouteConfig) => MiddlewareHandler;
 
 Returns a `makeRouter`. Options:
 
-- **`routeMiddleware`** — factories invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output). The returned middlewares are attached to the route's exact method + path and are method-gated, so other methods on the same path are unaffected. When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract.
+- **`routeMiddleware`** — factories invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output). The returned middlewares are attached to the route's exact method + path (`router.on(method, path)`), so other methods on the same path are unaffected; HEAD requests run a GET route's middlewares. When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract.
 
 - **`base`** — a partial `RouteConfig` deep-merged into every route declared via this router. Pipeline order: `base` ⊕ per-route config → `createRoute()` → `transformRoute` → `routeMiddleware` factories → returned to caller. Merge rules:
   - **Plain objects** recurse key-by-key (e.g. `responses[200]`, `request.params`).
@@ -87,10 +91,14 @@ function makeRouter<TPath, TVars, TFactoryResult>(
   factory: (options: {
     router: OpenAPIHono<{ Variables: TVars }>;
     route: MakeRouteFn<TPath, TBase>;
-  }) => TFactoryResult,
+  }) => TFactoryResult | void,
   children?: (() => OpenAPIHono<any, any, any>)[],
-): () => TFactoryResult;
+): () => FactoryReturn<TFactoryResult, OpenAPIHono<{ Variables: TVars }>>;
 ```
+
+If the factory returns nothing (or `null`/`undefined` on some path), the thunk
+returns the router itself; children are still mounted on it. When `children` are
+passed, the factory must return a router or nothing.
 
 `TBase` is threaded from `createRouter`'s options, so `route()`'s return type reflects the configured `base`.
 
@@ -102,7 +110,7 @@ The `route(method, config)` argument supplied to `factory`:
 - If `createRouter` was given `routeMiddleware`, attaches the resulting middleware(s) to this route's method + path.
 - Returns the resolved `RouteConfig` for use with `router.openapi(config, handler)`.
 
-## `createScopeMiddleware(options)` *(from `hono-typed-router/scopes`)*
+## `createScopeMiddleware(options)` _(from `hono-typed-router/scopes`)_
 
 ```ts
 function createScopeMiddleware(options: ScopeMiddlewareOptions): RouteMiddlewareFactory;
@@ -120,10 +128,10 @@ If a route has no `security`, the middleware is a no-op.
 ## Schema helpers
 
 ```ts
-makeHonoResponse(schema, description);   // { description, content: { 'application/json': { schema } } }
-makeHonoJsonBody(schema, description);   // same shape, for request bodies
-makeHonoJsonRequest(schema, description); // { body: makeHonoJsonBody(...) }
-makeHonoNoContentResponse(description);  // { description }
+makeHonoResponse(schema, description); // { description, content: { 'application/json': { schema } } }
+makeHonoJsonBody(schema, description); // same shape, for request bodies
+makeHonoJsonRequest(schema, description); // { body: { ...makeHonoJsonBody(...), required: true } }
+makeHonoNoContentResponse(description); // { description }
 ```
 
 These are thin shape-builders for `@hono/zod-openapi` `createRoute()` configs.
@@ -184,12 +192,15 @@ function rethrow(): Rethrow;
 ### `handleErrors(body, arms, c)`
 
 ```ts
-function handleErrors<TBody, const TArms extends ReadonlyArray<ErrorArm<any, any>>>(
+function handleErrors<TBody, const TArms extends ReadonlyArray<AnyArm>>(
   body: () => Promise<TBody>,
   arms: TArms,
   c: Context,
-): Promise<TBody | Exclude<Awaited<ArmResults<TArms>>, Rethrow>>;
+): Promise<TBody | ArmsResponse<TArms>>;
 ```
+
+`ArmsResponse<TArms>` is the union of each arm's awaited response minus the
+`Rethrow` sentinel. It is the same type `.errors([...])` widens with.
 
 The dispatch behind `.errors([...])`, usable on its own when you don't need the input proxy. Runs `body()`; if it throws an `Error`, the first arm whose `ctor` matches (by `instanceof`) handles it, arms are tried in order, and an arm returning `rethrow()` falls through. Non-`Error` throws bypass the arms. The return type is `TBody` widened with each arm's response (awaited, minus the `Rethrow` sentinel).
 
@@ -217,9 +228,11 @@ interface ExtendRouteContextResult<K extends RouteContextKind> {
     path: TPath,
     middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
   ) => ReaugmentContext<K, TPath, TVars>;
-  defineChildRoute: <TParentContext>() => <TPath extends string>(
+  defineChildRoute: <TParentContext extends { path: string; vars: object }>() => <
+    TPath extends string,
+  >(
     path: TPath,
-  ) => ReaugmentContext<K, `${ParentPath}${TPath}`, ParentVars>;
+  ) => ReaugmentContext<K, `${TParentContext['path']}${TPath}`, TParentContext['vars']>;
 }
 ```
 
@@ -244,16 +257,19 @@ type ReaugmentContext<K extends RouteContextKind, TPath extends string, TVars ex
 // Base members (path, vars, middlewares, kind-aware middleware) your interface extends.
 interface RouteContextBase<K extends RouteContextKind, TPath extends string, TVars extends object>
   extends Omit<RouteContext<TPath, TVars>, 'middleware'> {
-  middleware: <TNewVars extends object>(
-    handler: /* MiddlewareHandler, or a redeclaration-guard string */,
+  middleware: <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
+    handler: MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>,
   ) => ReaugmentContext<K, TPath, TVars & TNewVars>;
 }
 
 // The custom builder names a kind adds on top of RouteContextBase.
 type ExtensionNames<K extends RouteContextKind>;
 
-// The runtime builders map: { [name]: (ctx) => (...args) => ctx.middleware(...) }.
+// The runtime builders map: { [name]: (ctx) => (...args) => Context }. Each builder's
+// parameters are typed from your interface's method (at a loose `string` path and
+// `object` vars, so a `ParamKeys<TPath>` param is `never`) and it must return a
+// context, typically `ctx.middleware(mw)`. No cast is needed.
 type ExtensionBuilders<K extends RouteContextKind>;
 ```
 
-A full worked example (with `bindRepository`, `ParamKeys`, and the redeclaration guard) is in the README under *Extending the `define[x]` context* and in `docs/usage.md`.
+A full worked example (with `bindRepository`, `ParamKeys`, and the redeclaration guard) is in the README under _Extending the `define[x]` context_ and in `docs/usage.md`.

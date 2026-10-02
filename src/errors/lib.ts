@@ -6,6 +6,7 @@ import type { ContentfulStatusCode } from 'hono/utils/http-status';
  * next matching arm (or the surrounding `throw`) take over. Compared by identity.
  */
 export const RETHROW: unique symbol = Symbol('RETHROW');
+
 export type Rethrow = typeof RETHROW;
 
 /**
@@ -38,11 +39,15 @@ export const genericErrorHandler =
   (err: Error, c: Context) =>
     c.json({ message: err.message }, statusCode);
 
-type ArmResults<TArr> = TArr extends ReadonlyArray<infer T>
-  ? T extends ErrorArm<infer _TErr, infer TResult>
-    ? TResult
-    : never
-  : never;
+/** Any error arm, whatever error it matches and response it produces. */
+export type AnyArm = ErrorArm<any, any>;
+
+// `async () => rethrow()` widens the sentinel to `symbol`, so the whole primitive is excluded.
+type ArmResponse<TArm> =
+  TArm extends ErrorArm<any, infer TResult> ? Exclude<Awaited<TResult>, symbol> : never;
+
+/** Union of the response types produced by a tuple of arms (sans `Rethrow`). */
+export type ArmsResponse<TArms extends ReadonlyArray<AnyArm>> = ArmResponse<TArms[number]>;
 
 /**
  * Runs `body()` and, if it throws an `Error`, dispatches to the first matching
@@ -54,29 +59,30 @@ type ArmResults<TArr> = TArr extends ReadonlyArray<infer T>
  * `Rethrow` sentinel), so callers see the full set of responses the route can
  * produce.
  */
-export const handleErrors = async <
-  TBody,
-  const TArms extends ReadonlyArray<ErrorArm<any, any>>,
->(
+export const handleErrors = async <TBody, const TArms extends ReadonlyArray<AnyArm>>(
   body: () => Promise<TBody>,
   arms: TArms,
   c: Context,
-): Promise<TBody | Exclude<Awaited<ArmResults<TArms>>, Rethrow>> => {
+): Promise<TBody | ArmsResponse<TArms>> => {
   try {
     return await body();
   } catch (err) {
     if (!(err instanceof Error)) {
       throw err;
     }
+
     for (const arm of arms) {
       if (err instanceof arm.ctor) {
         const result = await arm.handle(err, c);
+
         if (result === RETHROW) {
           continue;
         }
+
         return result;
       }
     }
+
     throw err;
   }
 };

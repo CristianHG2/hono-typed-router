@@ -4,6 +4,7 @@ import { handleErrors, on, rethrow } from './lib';
 
 const makeContext = () => {
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));
+
   return { json } as unknown as Context;
 };
 
@@ -45,6 +46,7 @@ describe('handleErrors', () => {
   it('runs the matching arm and returns its result', async () => {
     const c = makeContext();
     const handle = vi.fn((_err: FooError, ctx: Context) => ctx.json({ message: 'caught' }, 404));
+
     const result = await handleErrors(
       async () => {
         throw new FooError();
@@ -111,6 +113,7 @@ describe('handleErrors', () => {
 
   it('matches subclasses via instanceof', async () => {
     const c = makeContext();
+
     const handle = vi.fn((_err: ParentError, ctx: Context) =>
       ctx.json({ message: 'parent matched' }, 400),
     );

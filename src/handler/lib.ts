@@ -1,19 +1,26 @@
 import type { Context, Input } from 'hono';
 import { handleErrors } from '../errors';
-import type { AnyArm, ArmsResponse, HandlerInvocation, ValidatedProxy } from './types';
+import type { AnyArm, HandlerInvocation, ValidatedProxy } from './types';
 
 const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I> => {
   const cached: Record<string, unknown> = {};
+
+  // SAFETY: every string key read through the proxy resolves to `c.req.valid(key)`, which is
+  // what `ValidatedProxy<I>` maps each validation target to.
   return new Proxy(
     {},
     {
       get(_target, key) {
         if (typeof key !== 'string') {
-          return undefined;
+          return;
         }
+
         if (!(key in cached)) {
+          // SAFETY: `valid` is typed over `I`'s target keys; at runtime it accepts any target
+          // string and the result is only exposed through the typed `ValidatedProxy<I>`.
           cached[key] = (c.req.valid as (target: string) => unknown)(key);
         }
+
         return cached[key];
       },
     },
@@ -44,10 +51,12 @@ export const handler = <I extends Input, TResponse>(
   const run = () => fn(proxy);
 
   let pending: Promise<TResponse> | undefined;
+
   const settle = (): Promise<TResponse> => {
     if (pending === undefined) {
       pending = run();
     }
+
     return pending;
   };
 
@@ -61,10 +70,9 @@ export const handler = <I extends Input, TResponse>(
     finally(onFinally) {
       return settle().finally(onFinally);
     },
-    [Symbol.toStringTag]: 'Promise' as const,
+    // Not 'Promise': stack frames then read `HandlerInvocation.then`, not `Promise.then`.
+    [Symbol.toStringTag]: 'HandlerInvocation',
     errors: <const TArms extends ReadonlyArray<AnyArm>>(arms: TArms) =>
-      handleErrors(run, arms, c as unknown as Context) as Promise<
-        TResponse | ArmsResponse<TArms>
-      >,
+      handleErrors(settle, arms, c),
   };
 };

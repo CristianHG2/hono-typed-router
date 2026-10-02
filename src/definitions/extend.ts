@@ -1,6 +1,9 @@
 import type { MiddlewareHandler } from 'hono';
-import { defineChildRoute as defineChildRouteBase, defineRootRoute as defineRootRouteBase } from './lib';
-import type { RouteContext } from './types';
+import {
+  defineChildRoute as defineChildRouteBase,
+  defineRootRoute as defineRootRouteBase,
+} from './lib';
+import type { ChildPath, NoRedeclare, ParentContext, RouteContext } from './types';
 
 /**
  * Higher-kinded slot used to pass an (unapplied) two-parameter context interface
@@ -55,10 +58,8 @@ export interface RouteContextBase<
   TPath extends string,
   TVars extends object,
 > extends Omit<RouteContext<TPath, TVars>, 'middleware'> {
-  middleware: <TNewVars extends object>(
-    handler: keyof TNewVars & keyof TVars extends never
-      ? MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>
-      : `Cannot redeclare existing vars: ${Extract<keyof TNewVars & keyof TVars, string>}`,
+  middleware: <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
+    handler: MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>,
   ) => ReaugmentContext<K, TPath, TVars & TNewVars>;
 }
 
@@ -76,30 +77,32 @@ export type ExtensionNames<K extends RouteContextKind> = Exclude<
 /**
  * Runtime builders for a `K`'s custom methods. Each builder receives the augmented
  * context (whose `.middleware()` and other builders already re-augment) and returns
- * the method implementation. The precise, path/vars-aware signature callers see
- * comes from the context interface; the builder body is checked against a loose
- * context.
+ * the method implementation. The implementation's parameters are typed from the
+ * context interface's method (at a loose `string` path / `object` vars), and it must
+ * return a context. The precise, path/vars-aware signature callers see comes from
+ * the context interface.
  */
 export type ExtensionBuilders<K extends RouteContextKind> = {
   [Name in ExtensionNames<K> & string]: (
     ctx: ReaugmentContext<K, string, object>,
-  ) => (...args: any[]) => unknown;
+  ) => (
+    ...args: ParamsOf<ReaugmentContext<K, string, object>[Name]>
+  ) => ReaugmentContext<K, string, object>;
 };
+
+// `Parameters<>` cannot be used here: its `(...args: any) => any` constraint is not
+// provably met by an indexed access into the kind (TS2344).
+type ParamsOf<T> = T extends (...args: infer P) => unknown ? P : never;
 
 /** The augmented `define[x]` entry points returned by {@link extendRouteContext}. */
 export interface ExtendRouteContextResult<K extends RouteContextKind> {
-  defineRootRoute: <TPath extends string, TVars extends object = object>(
+  defineRootRoute: <TPath extends string, TVars extends object = {}>(
     path: TPath,
     middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
   ) => ReaugmentContext<K, TPath, TVars>;
-  defineChildRoute: <TParentContext>() => <TPath extends string>(
+  defineChildRoute: <TParentContext extends ParentContext>() => <TPath extends string>(
     path: TPath,
-  ) => TParentContext extends {
-    path: infer TParentPath extends string;
-    vars: infer TParentVars extends object;
-  }
-    ? ReaugmentContext<K, `${TParentPath}${TPath}`, TParentVars>
-    : never;
+  ) => ReaugmentContext<K, ChildPath<TParentContext, TPath>, TParentContext['vars']>;
 }
 
 /**
@@ -135,16 +138,27 @@ export function extendRouteContext<K extends RouteContextKind>(
   const names = Object.keys(builders);
 
   const augment = (base: RouteContext<string, object>): RouteContext<string, object> => {
-    const augmented: Record<string, unknown> = { ...base };
-    augmented.middleware = (handler: MiddlewareHandler) =>
-      augment((base.middleware as (h: MiddlewareHandler) => RouteContext<string, object>)(handler));
+    const augmented: Record<string, unknown> = {
+      ...base,
+      // SAFETY: `RouteContext.middleware` is generic only over the vars type; at runtime it
+      // takes one handler and returns a new `RouteContext`.
+      middleware: (handler: MiddlewareHandler) =>
+        augment(
+          (base.middleware as (h: MiddlewareHandler) => RouteContext<string, object>)(handler),
+        ),
+    };
 
     for (const name of names) {
+      // SAFETY: `name` comes from `Object.keys(builders)`, and each builder takes the context.
       augmented[name] = (builders as Record<string, (ctx: unknown) => unknown>)[name](augmented);
     }
+
+    // SAFETY: `augmented` is a copy of `base` with `middleware` re-wrapped and builders added.
     return augmented as unknown as RouteContext<string, object>;
   };
 
+  // SAFETY: both entry points return `augment`ed contexts, which `ExtendRouteContextResult<K>`
+  // describes through the kind `K`; the erased runtime signatures cannot express that.
   return {
     defineRootRoute: ((path: string, middlewares: MiddlewareHandler[] = []) =>
       augment(defineRootRouteBase(path, middlewares))) as never,

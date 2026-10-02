@@ -6,14 +6,18 @@ import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './ext
 // A representative extension: bind a param-derived value under a new, typed var,
 // guarding against redeclaration — exercises path threading (ParamKeys), the vars
 // merge, and re-augmentation of the return.
-interface TestContext<TPath extends string, TVars extends object>
-  extends RouteContextBase<TestContextKind, TPath, TVars> {
+interface TestContext<TPath extends string, TVars extends object> extends RouteContextBase<
+  TestContextKind,
+  TPath,
+  TVars
+> {
   bindValue: <TKey extends string, TValue>(
     key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
     param: ParamKeys<TPath>,
     produce: (id: string) => TValue,
   ) => ReaugmentContext<TestContextKind, TPath, TVars & { [K in TKey]: TValue }>;
 }
+
 interface TestContextKind extends RouteContextKind {
   type: TestContext<this['path'] & string, this['vars'] & object>;
 }
@@ -36,6 +40,7 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
   const ctx = defineRootRoute('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => ({
     id,
   }));
+
   expectTypeOf(ctx.vars).toMatchTypeOf<{ tenant: { id: string } }>();
   expectTypeOf(ctx.bindValue).toBeFunction();
 }
@@ -56,24 +61,26 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
 
 // Extensions survive `.middleware()` chaining.
 {
-  const ctx = defineRootRoute('/api', []).middleware<{ user: { id: string } }>(
-    async (_c, next) => {
-      await next();
-    },
-  );
+  const ctx = defineRootRoute('/api', []).middleware<{ user: { id: string } }>(async (_c, next) => {
+    await next();
+  });
+
   expectTypeOf(ctx.bindValue).toBeFunction();
   expectTypeOf(ctx.vars).toMatchTypeOf<{ user: { id: string } }>();
 }
 
 // `.middleware()` still rejects redeclaring an existing var.
 {
-  const ctx = defineRootRoute('/api', []).middleware<{ user: { id: string } }>(
-    async (_c, next) => {
-      await next();
-    },
-  );
-  // @ts-expect-error — redeclaring `user` must produce a guard string, not a valid handler
-  ctx.middleware<{ user: { id: number } }>(async (_c, next) => {
+  const ctx = defineRootRoute('/api', []).middleware<{ user: { id: string } }>(async (_c, next) => {
+    await next();
+  });
+
+  // @ts-expect-error — redeclaring `user` fails the `NoRedeclare` constraint on the type argument
+  ctx.middleware<{
+    user: { id: number };
+  }>(async (c, next) => {
+    // Contextual typing survives the guard: `c` is not an implicit `any`.
+    expectTypeOf(c.var.user).toEqualTypeOf<{ id: string } & { id: number }>();
     await next();
   });
 }
@@ -85,6 +92,7 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
       await next();
     },
   );
+
   const child = defineChildRoute<typeof parent>()('/things/:id');
   expectTypeOf(child.path).toEqualTypeOf<'/api/things/:id'>();
   expectTypeOf(child.vars).toMatchTypeOf<{ user: { id: string } }>();
@@ -92,4 +100,35 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
 
   const bound = child.bindValue('thing', 'id', (id) => Number(id));
   expectTypeOf(bound.vars).toMatchTypeOf<{ user: { id: string }; thing: number }>();
+}
+
+// Builder implementations get their parameters from the context interface (not `any`)
+// and must return a context.
+{
+  extendRouteContext<TestContextKind>({
+    bindValue: (ctx) => (key, param, produce) => {
+      expectTypeOf(key).not.toBeAny();
+      expectTypeOf(param).not.toBeAny();
+      expectTypeOf(produce).not.toBeAny();
+      expectTypeOf(produce).parameters.toEqualTypeOf<[id: string]>();
+      // @ts-expect-error — `key` is a string, so it is not assignable to `0` (it would be if `any`)
+      const asZero: 0 = key;
+      void asZero;
+
+      return ctx.middleware(async (_c, next) => {
+        await next();
+      });
+    },
+  });
+
+  extendRouteContext<TestContextKind>({
+    // @ts-expect-error — a builder must return a context, not a number
+    bindValue: () => () => 42,
+  });
+}
+
+// The extended `defineChildRoute` shares the `ParentContext` constraint
+{
+  // @ts-expect-error — `{ path: '/a' }` has no `vars`, so it fails the `ParentContext` constraint
+  defineChildRoute<{ path: '/a' }>();
 }

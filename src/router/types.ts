@@ -4,6 +4,7 @@ import type { ZodType, ZodUnion } from 'zod';
 import type { RouteContext } from '../definitions';
 
 export type RouteConfigMethod = RouteConfig['method'];
+
 export type InputRouteConfig = Omit<RouteConfig, 'method' | 'path'>;
 
 export type BaseRouteConfig = Partial<InputRouteConfig>;
@@ -31,10 +32,7 @@ export type DeepMerge<A, B> = [A] extends [never]
         ? ZodUnion<readonly [A, B]>
         : B
       : [IsArray<A>, IsArray<B>] extends [true, true]
-        ? [
-            ...(A extends readonly unknown[] ? A : []),
-            ...(B extends readonly unknown[] ? B : []),
-          ]
+        ? [...(A extends readonly unknown[] ? A : []), ...(B extends readonly unknown[] ? B : [])]
         : [IsPlainObject<A>, IsPlainObject<B>] extends [true, true]
           ? {
               [K in keyof A | keyof B]: K extends keyof B
@@ -86,15 +84,48 @@ export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
   transformRoute?: (config: RouteConfig) => RouteConfig;
 }
 
-export type MakeRouterFn<TBase extends BaseRouteConfig = {}> = <
+type RouterFactory<
   TPath extends string,
   TVars extends object,
+  TBase extends BaseRouteConfig,
+  TResult,
+> = (options: {
+  router: OpenAPIHono<{ Variables: TVars }>;
+  route: MakeRouteFn<TPath, TBase>;
+}) => TResult;
+
+/**
+ * The thunk's result, matching the runtime `result ?? router`: the factory's return,
+ * with any `void`/`null`/`undefined` branch replaced by the router itself.
+ */
+export type FactoryReturn<TResult, TRouter> = [TResult] extends [void]
+  ? TRouter
+  :
+      | Exclude<TResult, null | undefined | void>
+      | ([Extract<TResult, null | undefined | void>] extends [never] ? never : TRouter);
+
+type RouterThunk<TVars extends object, TFactoryResult> = () => FactoryReturn<
   TFactoryResult,
->(
-  context: RouteContext<TPath, TVars>,
-  factory: (options: {
-    router: OpenAPIHono<{ Variables: TVars }>;
-    route: MakeRouteFn<TPath, TBase>;
-  }) => TFactoryResult,
-  children?: (() => OpenAPIHono<any, any, any>)[],
-) => () => TFactoryResult;
+  OpenAPIHono<{ Variables: TVars }>
+>;
+
+export interface MakeRouterFn<TBase extends BaseRouteConfig = {}> {
+  /** Without children the factory may return anything (a router, a route list, ...). */
+  <TPath extends string, TVars extends object, TFactoryResult>(
+    context: RouteContext<TPath, TVars>,
+    factory: RouterFactory<TPath, TVars, TBase, TFactoryResult | void>,
+  ): RouterThunk<TVars, TFactoryResult>;
+  /**
+   * With children the factory must return the app the children are mounted on, or
+   * nothing (the children are then mounted on the router itself).
+   */
+  <
+    TPath extends string,
+    TVars extends object,
+    TFactoryResult extends OpenAPIHono<any, any, any> | void,
+  >(
+    context: RouteContext<TPath, TVars>,
+    factory: RouterFactory<TPath, TVars, TBase, TFactoryResult>,
+    children?: (() => OpenAPIHono<any, any, any>)[],
+  ): RouterThunk<TVars, TFactoryResult>;
+}

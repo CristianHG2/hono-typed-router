@@ -8,12 +8,14 @@ import { on } from '../errors';
 import { handler } from './lib';
 
 const okResponse = makeHonoResponse(z.object({ id: z.string() }), 'OK');
+
 const notFound = makeHonoResponse(z.object({ message: z.string() }), 'Not found');
 
 class RecordNotFoundError extends Error {}
 
 const buildRouter = (shouldThrow: boolean) => {
   const ctx = defineRootRoute('/api', []);
+
   return createRouter()(ctx, ({ router, route }) => {
     const r = route('get', { responses: { 200: okResponse, 404: notFound } });
     router.openapi(
@@ -23,11 +25,13 @@ const buildRouter = (shouldThrow: boolean) => {
           if (shouldThrow) {
             throw new RecordNotFoundError('missing');
           }
+
           return c.json({ id: 'thing-1' }, 200);
         }).errors([
           on(RecordNotFoundError, (_e, ec) => ec.json({ message: 'Not found' }, 404)),
         ])) as never,
     );
+
     return router;
   })();
 };

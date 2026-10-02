@@ -13,6 +13,7 @@ const buildApp = (
   onForbidden?: (missing: string[]) => unknown,
 ) => {
   const ctx = defineRootRoute('/api', []);
+
   const makeRouter = createRouter({
     routeMiddleware: createScopeMiddleware({
       resolve: () => available,
@@ -23,6 +24,7 @@ const buildApp = (
   return makeRouter(ctx, ({ router, route }) => {
     const r = route('get', { security, responses: { 200: okResponse } });
     router.openapi(r as never, (c) => c.json({ ok: true }) as never);
+
     return router;
   })();
 };
@@ -46,11 +48,11 @@ describe('createScopeMiddleware', () => {
   });
 
   it('honors a custom onForbidden body', async () => {
-    const app = buildApp(
-      [],
-      [{ oauth2: ['admin'] }],
-      (missing) => ({ code: 'NOPE', need: missing }),
-    );
+    const app = buildApp([], [{ oauth2: ['admin'] }], (missing) => ({
+      code: 'NOPE',
+      need: missing,
+    }));
+
     const res = await app.request('/api');
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ code: 'NOPE', need: ['admin'] });
@@ -63,15 +65,27 @@ describe('createScopeMiddleware', () => {
   });
 
   it('deduplicates required scopes across security entries', async () => {
-    const app = buildApp(
-      ['a'],
-      [{ oauth2: ['a', 'b'] }, { oauth2: ['b', 'c'] }],
-    );
+    const app = buildApp(['a'], [{ oauth2: ['a', 'b'] }, { oauth2: ['b', 'c'] }]);
     const res = await app.request('/api');
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
       error: 'E_FORBIDDEN',
       message: 'Missing b, c scope(s)',
     });
+  });
+
+  it('names the middleware after the required scopes', () => {
+    const factory = createScopeMiddleware({ resolve: () => [] });
+
+    const route = (security?: { oauth2: string[] }[]) =>
+      ({ method: 'get', path: '/', responses: {}, security }) as never;
+
+    expect(factory(route([{ oauth2: ['things.read', 'things.write'] }])).name).toBe(
+      'requireScopes:things.read+things.write',
+    );
+    expect(factory(route([{ oauth2: ['has space', 'f(x)'] }])).name).toBe(
+      'requireScopes:has_space+f_x_',
+    );
+    expect(factory(route()).name).toBe('requireScopes');
   });
 });

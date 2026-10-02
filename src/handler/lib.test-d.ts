@@ -4,11 +4,13 @@ import type { Context } from 'hono';
 import { createRouter } from '../router';
 import { defineRootRoute } from '../definitions';
 import { makeHonoResponse } from '../factories';
-import { on, rethrow } from '../errors';
+import { handleErrors, on, rethrow } from '../errors';
 import { handler } from './lib';
 
 const ok = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
+
 const conflict = makeHonoResponse(z.object({ message: z.string() }), 'Conflict');
+
 const ctx = defineRootRoute('/api', []);
 
 class ConflictError extends Error {}
@@ -23,7 +25,9 @@ class ConflictError extends Error {}
     handler(c, async () => c.json({ ok: true }, 200)).errors([
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]);
+
   type R = Awaited<ReturnType<typeof run>>;
+
   expectTypeOf<R>().toEqualTypeOf<typeof ok200 | typeof conflict409>();
 }
 
@@ -33,14 +37,57 @@ class ConflictError extends Error {}
 {
   const c = {} as Context;
   const noArms = () => handler(c, async () => c.json({ ok: true }, 200)).errors([]);
+
   type NoArms = Awaited<ReturnType<typeof noArms>>;
 
   const run = () =>
-    handler(c, async () => c.json({ ok: true }, 200)).errors([
-      on(ConflictError, () => rethrow()),
-    ]);
+    handler(c, async () => c.json({ ok: true }, 200)).errors([on(ConflictError, () => rethrow())]);
+
   type R = Awaited<ReturnType<typeof run>>;
+
   expectTypeOf<R>().toEqualTypeOf<NoArms>();
+}
+
+// `handleErrors` and `.errors([...])` share one arm extractor (`ArmsResponse` in
+// errors/lib): both resolve to `TBody | <each arm's awaited response, minus Rethrow>`
+// for one arm, two arms, a rethrow-only arm, and an async arm.
+{
+  const c = {} as Context;
+
+  class MissingError extends Error {}
+
+  const ok200 = c.json({ ok: true }, 200);
+  const notFound404 = c.json({ message: 'nf' }, 404);
+  const conflict409 = c.json({ message: 'x' }, 409);
+
+  type Ok = typeof ok200;
+
+  type NotFound = typeof notFound404;
+
+  type Conflict = typeof conflict409;
+
+  const body = async () => c.json({ ok: true }, 200);
+  const notFoundArm = on(MissingError, (_e, ec) => ec.json({ message: 'nf' }, 404));
+  const conflictArm = on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409));
+  const rethrowArm = on(ConflictError, () => rethrow());
+  const asyncArm = on(MissingError, async (_e, ec) => ec.json({ message: 'nf' }, 404));
+
+  // (a) one arm returning 404
+  expectTypeOf(handler(c, body).errors([notFoundArm])).toEqualTypeOf<Promise<Ok | NotFound>>();
+  expectTypeOf(handleErrors(body, [notFoundArm], c)).toEqualTypeOf<Promise<Ok | NotFound>>();
+  // (b) two arms 404 | 409
+  expectTypeOf(handler(c, body).errors([notFoundArm, conflictArm])).toEqualTypeOf<
+    Promise<Ok | NotFound | Conflict>
+  >();
+  expectTypeOf(handleErrors(body, [notFoundArm, conflictArm], c)).toEqualTypeOf<
+    Promise<Ok | NotFound | Conflict>
+  >();
+  // (c) rethrow-only arm adds nothing
+  expectTypeOf(handler(c, body).errors([rethrowArm])).toEqualTypeOf<Promise<Ok>>();
+  expectTypeOf(handleErrors(body, [rethrowArm], c)).toEqualTypeOf<Promise<Ok>>();
+  // (d) async arm contributes its awaited response
+  expectTypeOf(handler(c, body).errors([asyncArm])).toEqualTypeOf<Promise<Ok | NotFound>>();
+  expectTypeOf(handleErrors(body, [asyncArm], c)).toEqualTypeOf<Promise<Ok | NotFound>>();
 }
 
 // A response an arm can emit that IS declared on the route type-checks.
@@ -51,6 +98,7 @@ createRouter()(ctx, ({ router, route }) => {
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]),
   );
+
   return router;
 });
 
@@ -63,6 +111,19 @@ createRouter()(ctx, ({ router, route }) => {
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]),
   );
+
+  return router;
+});
+
+// An async arm that only rethrows adds nothing to the response type (no `symbol` leak).
+createRouter()(ctx, ({ router, route }) => {
+  const declared = route('post', { responses: { 200: ok } });
+  router.openapi(declared, (c) =>
+    handler(c, async () => c.json({ ok: true }, 200)).errors([
+      on(ConflictError, async () => rethrow()),
+    ]),
+  );
+
   return router;
 });
 
@@ -73,5 +134,6 @@ createRouter()(ctx, ({ router, route }) => {
     // @ts-expect-error — 500 is absent from `responses`
     handler(c, async () => c.json({ ok: true }, 500)),
   );
+
   return router;
 });

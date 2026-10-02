@@ -1,6 +1,7 @@
+import type { OpenAPIHono } from '@hono/zod-openapi';
 import { expectTypeOf } from 'expect-type';
 import { z, type ZodUnion } from 'zod';
-import { defineRootRoute } from '../definitions';
+import { defineChildRoute, defineRootRoute } from '../definitions';
 import { makeHonoResponse } from '../factories';
 import { createRouter } from './lib';
 
@@ -28,6 +29,81 @@ const okResponse = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(builder).toBeFunction();
   const built = builder();
   expectTypeOf(built).not.toBeAny();
+}
+
+// A factory that returns nothing yields the router itself from the thunk
+{
+  const ctx = defineRootRoute('/api', []).middleware<{ user: string }>(async (_c, next) => {
+    await next();
+  });
+
+  const builder = createRouter()(ctx, () => {});
+
+  expectTypeOf(builder()).toEqualTypeOf<OpenAPIHono<{ Variables: typeof ctx.vars }>>();
+  expectTypeOf(builder()).not.toBeAny();
+}
+
+// A factory that returns the router (or anything else) keeps that return type
+{
+  const ctx = defineRootRoute('/api', []);
+  const router = createRouter()(ctx, ({ router }) => router);
+  const custom = createRouter()(ctx, () => ({ custom: true as const }));
+
+  expectTypeOf(router()).toEqualTypeOf<OpenAPIHono<{ Variables: typeof ctx.vars }>>();
+  expectTypeOf(custom()).toEqualTypeOf<{ custom: true }>();
+}
+
+// Children: the factory must return a router (or nothing); `children` stays optional
+{
+  const ctx = defineRootRoute('/api', []).middleware<{ user: string }>(async (_c, next) => {
+    await next();
+  });
+
+  type Router = OpenAPIHono<{ Variables: typeof ctx.vars }>;
+
+  const makeRouter = createRouter();
+  const child = makeRouter(defineChildRoute<typeof ctx>()('/things'), ({ router }) => router);
+  const maybeChildren = [child] as (() => OpenAPIHono<any, any, any>)[] | undefined;
+
+  expectTypeOf(makeRouter(ctx, ({ router }) => router, [child])()).toEqualTypeOf<Router>();
+  expectTypeOf(makeRouter(ctx, ({ router }) => router, [])()).toEqualTypeOf<Router>();
+  expectTypeOf(makeRouter(ctx, ({ router }) => router, undefined)()).toEqualTypeOf<Router>();
+  expectTypeOf(makeRouter(ctx, ({ router }) => router, maybeChildren)()).toEqualTypeOf<Router>();
+
+  // A factory that returns nothing still accepts children (they mount on the router).
+  expectTypeOf(makeRouter(ctx, () => {}, [child])()).toEqualTypeOf<Router>();
+
+  // Conditional / null returns resolve to the router, matching `result ?? router`.
+  const flag = Math.random() > 0.5;
+  expectTypeOf(
+    makeRouter(ctx, ({ router }) => {
+      if (flag) return router;
+    })(),
+  ).toEqualTypeOf<Router>();
+  expectTypeOf(makeRouter(ctx, () => null)()).toEqualTypeOf<Router>();
+  expectTypeOf(makeRouter(ctx, () => (flag ? { x: 1 } : undefined))()).toEqualTypeOf<
+    { x: number } | Router
+  >();
+
+  // The destructured options stay typed under the children overload.
+  makeRouter(
+    ctx,
+    ({ router, route }) => {
+      expectTypeOf(router).toEqualTypeOf<Router>();
+      expectTypeOf(route('get', { responses: { 200: okResponse } }).path).toEqualTypeOf<'/api'>();
+
+      return router;
+    },
+    [child],
+  );
+
+  // @ts-expect-error — children are mounted on the factory's result, which must be a router
+  makeRouter(ctx, () => ({ not: 'router' }), [child]);
+
+  // Without children a non-router return is still allowed.
+  expectTypeOf(makeRouter(ctx, () => ({ not: 'router' as const }))()).toEqualTypeOf<{
+    not: 'router';
+  }>();
 }
 
 // `base` merges into the static return type of `route()`
@@ -64,7 +140,9 @@ const okResponse = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
   createRouter({ base: { responses: { 422: baseResp } } })(ctx, ({ route }) => {
     const declared = route('get', { responses: { 200: okResponse, 422: routeResp } });
 
-    type MergedSchema = (typeof declared)['responses'][422]['content']['application/json']['schema'];
+    type MergedSchema =
+      (typeof declared)['responses'][422]['content']['application/json']['schema'];
+
     expectTypeOf<MergedSchema>().toEqualTypeOf<
       ZodUnion<readonly [typeof baseSchema, typeof routeSchema]>
     >();
