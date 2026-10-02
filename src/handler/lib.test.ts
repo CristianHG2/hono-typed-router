@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'hono';
-import { on } from '../errors';
-import { handler } from './lib';
+import { on, onError, rethrow } from '../errors';
+import { handle, handler } from './lib';
 
 type FakeContext = Context & {
   req: { valid: ReturnType<typeof vi.fn> };
@@ -26,9 +26,123 @@ class RecordNotFoundError extends Error {
 }
 
 const recordNotFoundArm = (message: string) =>
-  on(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+  onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
 
-describe('handler', () => {
+describe('handle', () => {
+  it('exposes validated inputs by target name via a destructurable proxy', async () => {
+    const c = makeContext({ param: { id: 'x' }, json: { name: 'foo' } });
+
+    const result = await handle(c, async ({ param, json }) => {
+      const p = param as { id: string };
+      const j = json as { name: string };
+
+      return `${p.id}:${j.name}`;
+    });
+
+    expect(result).toBe('x:foo');
+  });
+
+  it('caches each target so c.req.valid is only called once per target', async () => {
+    const c = makeContext({ param: { id: 'x' } });
+    await handle(c, async ({ param }) => {
+      void (param as { id: string }).id;
+      void (param as { id: string }).id;
+
+      return 'ok';
+    });
+    expect(c.req.valid).toHaveBeenCalledTimes(1);
+    expect(c.req.valid).toHaveBeenCalledWith('param');
+  });
+
+  it('does not call c.req.valid for untouched targets', async () => {
+    const c = makeContext({ param: { id: 'x' }, json: { name: 'foo' } });
+    await handle(c, async ({ param }) => (param as { id: string }).id);
+    expect(c.req.valid).toHaveBeenCalledTimes(1);
+    expect(c.req.valid).toHaveBeenCalledWith('param');
+  });
+
+  it('returns the body result and rejects with its error when no arms are given', async () => {
+    const c = makeContext({ json: { value: 42 } });
+
+    const result = await handle(c, async ({ json }) =>
+      c.json({ value: (json as { value: number }).value }, 200),
+    );
+
+    expect(result).toEqual({ body: { value: 42 }, status: 200 });
+    await expect(
+      handle(c, async () => {
+        throw new RecordNotFoundError('missing');
+      }),
+    ).rejects.toBeInstanceOf(RecordNotFoundError);
+  });
+
+  it('returns a plain promise that runs the body once', async () => {
+    const c = makeContext();
+    const body = vi.fn(async () => 'once');
+    const result = handle(c, body);
+
+    expect(result).toBeInstanceOf(Promise);
+    expect(await result).toBe('once');
+    expect(body).toHaveBeenCalledTimes(1);
+  });
+
+  it('dispatches a thrown error to the matching arm', async () => {
+    const c = makeContext();
+
+    const result = await handle(c, async () => {
+      throw new RecordNotFoundError('missing');
+    }, [recordNotFoundArm('Not found')]);
+
+    expect(result).toEqual({ body: { message: 'Not found' }, status: 404 });
+  });
+
+  it('returns the body result when no arm fires', async () => {
+    const c = makeContext({ param: { id: 'x' } });
+
+    const result = await handle(
+      c,
+      async ({ param }) => c.json({ id: (param as { id: string }).id }, 200),
+      [recordNotFoundArm('Not found')],
+    );
+
+    expect(result).toEqual({ body: { id: 'x' }, status: 200 });
+  });
+
+  it('falls through an arm that rethrows to the next matching arm', async () => {
+    const c = makeContext();
+    const first = vi.fn(() => rethrow());
+
+    const result = await handle(c, async () => {
+      throw new RecordNotFoundError('missing');
+    }, [onError(RecordNotFoundError, first), recordNotFoundArm('Second')]);
+
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ body: { message: 'Second' }, status: 404 });
+  });
+
+  it('rethrows when the thrown error matches no arm', async () => {
+    const c = makeContext();
+    await expect(
+      handle(c, async () => {
+        throw new Error('boom');
+      }, [recordNotFoundArm('Not found')]),
+    ).rejects.toThrow('boom');
+  });
+
+  it('passes non-Error throws through without consulting arms', async () => {
+    const c = makeContext();
+    const arm = vi.fn();
+
+    await expect(
+      handle(c, async () => {
+        throw 'not-an-error';
+      }, [onError(Error, arm)]),
+    ).rejects.toBe('not-an-error');
+    expect(arm).not.toHaveBeenCalled();
+  });
+});
+
+describe('handler (deprecated)', () => {
   it('exposes validated inputs by target name via a destructurable proxy', async () => {
     const c = makeContext({ param: { id: 'x' }, json: { name: 'foo' } });
 
@@ -90,7 +204,7 @@ describe('handler', () => {
   });
 });
 
-describe('handler.errors', () => {
+describe('handler(...).errors (deprecated)', () => {
   it('composes the error arms via handleErrors and returns a matching arm response', async () => {
     const c = makeContext();
 
@@ -141,7 +255,7 @@ describe('handler.errors', () => {
     await expect(
       handler(c, async () => {
         throw new Error('boom');
-      }).errors([recordNotFoundArm('Not found')]),
+      }).errors([on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'x' }, 404))]),
     ).rejects.toThrow('boom');
   });
 

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineRootRoute } from './definitions';
-import { makeHonoJsonRequest, makeHonoResponse } from './factories';
+import {
+  emptyResponse,
+  jsonBody,
+  jsonRequest,
+  jsonResponse,
+  makeHonoJsonBody,
+  makeHonoJsonRequest,
+  makeHonoNoContentResponse,
+  makeHonoResponse,
+} from './factories';
 import { createRouter } from './router';
 
 const Body = z.object({ name: z.string() });
@@ -9,8 +18,8 @@ const Body = z.object({ name: z.string() });
 const buildApp = () =>
   createRouter()(defineRootRoute('/api', []), ({ router, route }) => {
     const r = route('post', {
-      request: makeHonoJsonRequest(Body, 'Create'),
-      responses: { 200: makeHonoResponse(z.object({ got: z.unknown() }), 'OK') },
+      request: jsonRequest(Body, 'Create'),
+      responses: { 200: jsonResponse(z.object({ got: z.unknown() }), 'OK') },
     });
 
     router.openapi(r as never, (c) => c.json({ got: c.req.valid('json' as never) }) as never);
@@ -18,9 +27,9 @@ const buildApp = () =>
     return router;
   })();
 
-describe('makeHonoJsonRequest', () => {
+describe('jsonRequest', () => {
   it('marks the body as required', () => {
-    expect(makeHonoJsonRequest(Body, 'Create').body.required).toBe(true);
+    expect(jsonRequest(Body, 'Create').body.required).toBe(true);
   });
 
   it('rejects a POST without a body with 400', async () => {
@@ -37,5 +46,25 @@ describe('makeHonoJsonRequest', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ got: { name: 'x' } });
+  });
+});
+
+describe('response and body factories', () => {
+  it('builds a JSON response and body with the same shape', () => {
+    const expected = { description: 'OK', content: { 'application/json': { schema: Body } } };
+
+    expect(jsonResponse(Body, 'OK')).toEqual(expected);
+    expect(jsonBody(Body, 'OK')).toEqual(expected);
+  });
+
+  it('builds an empty response', () => {
+    expect(emptyResponse('Deleted')).toEqual({ description: 'Deleted' });
+  });
+
+  it('keeps the 0.x names as aliases', () => {
+    expect(makeHonoResponse).toBe(jsonResponse);
+    expect(makeHonoJsonBody).toBe(jsonBody);
+    expect(makeHonoJsonRequest).toBe(jsonRequest);
+    expect(makeHonoNoContentResponse).toBe(emptyResponse);
   });
 });

@@ -1,3 +1,11 @@
-export { RETHROW, on, rethrow, genericErrorHandler, handleErrors } from './lib';
+export {
+  RETHROW,
+  on,
+  onError,
+  matchErrors,
+  rethrow,
+  genericErrorHandler,
+  handleErrors,
+} from './lib';
 
-export type { Rethrow, ErrorArm } from './lib';
+export type { Rethrow, ErrorArm, ErrorCtor, ErrorTag, MatchHandlers } from './lib';

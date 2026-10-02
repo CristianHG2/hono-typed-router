@@ -1,4 +1,4 @@
-import type { Context, Input } from 'hono';
+import type { Input } from 'hono';
 import type { InputToDataByTarget, ValidationTargets } from 'hono/types';
 import type { AnyArm, ArmsResponse } from '../errors/lib';
 
@@ -14,7 +14,9 @@ export type ValidatedProxy<I extends Input> = {
 };
 
 /**
- * Awaitable result of {@link handler}. Behaves as `Promise<TResponse>` on its own;
+ * @deprecated Use {@link handle}, which returns a plain `Promise`. Removed in 2.0.
+ *
+ * Awaitable result of the deprecated {@link handler}. Behaves as `Promise<TResponse>` on its own;
  * calling `.errors([...])` runs the body under {@link handleErrors} and widens the
  * result with the arms' responses. Because those responses flow into the value
  * returned to `router.openapi(...)`, a response an arm can emit that the route did
@@ -26,8 +28,3 @@ export type HandlerInvocation<TResponse> = Promise<TResponse> &
       arms: TArms,
     ) => Promise<TResponse | ArmsResponse<TArms>>;
   }>;
-
-export type HandlerFn = <I extends Input, TResponse>(
-  c: Context<any, any, I>,
-  fn: (proxy: ValidatedProxy<I>) => Promise<TResponse>,
-) => HandlerInvocation<TResponse>;

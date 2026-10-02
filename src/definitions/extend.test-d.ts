@@ -132,3 +132,54 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
   // @ts-expect-error — `{ path: '/a' }` has no `vars`, so it fails the `ParentContext` constraint
   defineChildRoute<{ path: '/a' }>();
 }
+
+// Value form on an extended context: path, vars and builders carry over, and a
+// grandchild keeps chaining.
+{
+  const root = defineRootRoute('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => ({
+    id,
+  }));
+
+  const child = defineChildRoute(root, '/things/:id');
+  expectTypeOf(child.path).toEqualTypeOf<'/api/:tenantId/things/:id'>();
+  expectTypeOf(child.vars).toMatchTypeOf<{ tenant: { id: string } }>();
+
+  const bound = child.bindValue('thing', 'id', (id) => Number(id));
+  expectTypeOf(bound.vars).toMatchTypeOf<{ tenant: { id: string }; thing: number }>();
+  expectTypeOf(bound.bindValue).toBeFunction();
+
+  const grandchild = defineChildRoute(bound, '/parts').middleware<{ part: string }>(
+    async (_c, next) => {
+      await next();
+    },
+  );
+
+  expectTypeOf(grandchild.path).toEqualTypeOf<'/api/:tenantId/things/:id/parts'>();
+  expectTypeOf(grandchild.vars).toMatchTypeOf<{
+    tenant: { id: string };
+    thing: number;
+    part: string;
+  }>();
+  expectTypeOf(grandchild.bindValue).toBeFunction();
+
+  // The curried form still compiles.
+  const curried = defineChildRoute<typeof root>()('/things/:id');
+  expectTypeOf(curried.path).toEqualTypeOf<typeof child.path>();
+}
+
+// A root `'/'` parent does not double the slash on an extended context either.
+{
+  const slashRoot = defineRootRoute('/', []);
+  const child = defineChildRoute(slashRoot, '/things');
+  expectTypeOf(child.path).toEqualTypeOf<'/things'>();
+  expectTypeOf(child.bindValue).toBeFunction();
+  expectTypeOf(defineChildRoute<typeof slashRoot>()('/things').path).toEqualTypeOf<'/things'>();
+}
+
+// A segment without a leading `/` is joined with one on an extended context too.
+{
+  const api = defineRootRoute('/api', []);
+  expectTypeOf(defineChildRoute(api, 'x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(defineChildRoute<typeof api>()('x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(defineChildRoute(defineRootRoute('', []), 'x').path).toEqualTypeOf<'/x'>();
+}

@@ -6,6 +6,8 @@ Examples are self-contained and copy-pastable. They build on each other but are 
 
 The library does not enforce a file structure, but it is designed to be used **one route per file, with directories mirroring the URL hierarchy** — a hand-rolled file-based router. This keeps the type system doing the work: each file imports its parent's context and declares its own segment, and a top-level barrel composes the tree.
 
+This layout has circular imports: a parent file imports its children's routers to mount them, and each child file imports its parent's context. So the files below use the **curried form**, `defineChildRoute<typeof parent>()(segment)`, with an `import type` of the parent. A type-only import has no runtime cycle. The value form, `defineChildRoute(parent, segment)`, needs the parent value when the child module loads, and in a cycle that value is not initialized yet. Use the value form when the child is declared in the same file as its parent, or in a module that its parent does not import (the rest of this document does that).
+
 ### Conventions
 
 - **One context per file.** Each file declares exactly one `RouteContext` (root, child, or grandchild) and exactly one router built from it.
@@ -63,9 +65,9 @@ export const makeRouter = createRouter({
 **`routes/organizations/index.ts`** — collection endpoints:
 
 ```ts
-import { defineChildRoute, makeHonoResponse } from 'hono-typed-router';
+import { defineChildRoute, jsonResponse } from 'hono-typed-router';
 import { z } from 'zod';
-import { rootRoute } from '..';
+import type { rootRoute } from '..';
 import { makeRouter } from '../_router';
 import { organizationRouter } from './[orgId]';
 
@@ -73,13 +75,11 @@ export const organizationsRoute = defineChildRoute<typeof rootRoute>()('/organiz
 
 export const organizationsRouter = makeRouter(
   organizationsRoute,
-  ({ router, route }) => {
+  ({ router, route }) =>
     router.openapi(
-      route('get', { responses: { 200: makeHonoResponse(z.array(Organization), 'OK') } }),
+      route('get', { responses: { 200: jsonResponse(z.array(Organization), 'OK') } }),
       async (c) => c.json(await db.organizations.list()),
-    );
-    return router;
-  },
+    ),
   [organizationRouter],
 );
 ```
@@ -87,8 +87,8 @@ export const organizationsRouter = makeRouter(
 **`routes/organizations/[orgId]/index.ts`** — item context that also loads the parent resource for its children:
 
 ```ts
-import { defineChildRoute, makeHonoResponse } from 'hono-typed-router';
-import { organizationsRoute } from '..';
+import { defineChildRoute, jsonResponse } from 'hono-typed-router';
+import type { organizationsRoute } from '..';
 import { makeRouter } from '../../_router';
 import { organizationDepartmentsRouter } from './departments';
 import { bindOrganization } from './_bind';
@@ -100,13 +100,10 @@ export const organizationRoute = bindOrganization(
 
 export const organizationRouter = makeRouter(
   organizationRoute,
-  ({ router, route }) => {
-    router.openapi(
-      route('get', { responses: { 200: makeHonoResponse(Organization, 'OK') } }),
-      (c) => c.json(c.var.organization),
-    );
-    return router;
-  },
+  ({ router, route }) =>
+    router.openapi(route('get', { responses: { 200: jsonResponse(Organization, 'OK') } }), (c) =>
+      c.json(c.var.organization),
+    ),
   [organizationDepartmentsRouter],
 );
 ```
@@ -114,8 +111,8 @@ export const organizationRouter = makeRouter(
 **`routes/organizations/[orgId]/departments/[departmentId].ts`** — leaf item:
 
 ```ts
-import { defineChildRoute, makeHonoNoContentResponse } from 'hono-typed-router';
-import { organizationDepartmentsRoute } from '.';
+import { defineChildRoute, emptyResponse } from 'hono-typed-router';
+import type { organizationDepartmentsRoute } from '.';
 import { makeRouter } from '../../../_router';
 
 export const organizationDepartmentRoute =
@@ -123,22 +120,17 @@ export const organizationDepartmentRoute =
 
 export const organizationDepartmentRouter = makeRouter(
   organizationDepartmentRoute,
-  ({ router, route }) => {
-    router.openapi(
-      route('delete', { responses: { 204: makeHonoNoContentResponse('Deleted') } }),
-      async (c) => {
-        await db.departments.delete(c.req.param('departmentId'));
-        return c.body(null, 204);
-      },
-    );
-    return router;
-  },
+  ({ router, route }) =>
+    router.openapi(route('delete', { responses: { 204: emptyResponse('Deleted') } }), async (c) => {
+      await db.departments.delete(c.req.param('departmentId'));
+      return c.body(null, 204);
+    }),
 );
 ```
 
 ### Why this layout
 
-- The compiler proves the URL hierarchy: a grandchild that imports the wrong parent's context produces a path-type mismatch at the `defineChildRoute<typeof parent>()` site.
+- The compiler proves the URL hierarchy: a grandchild that imports the wrong parent's context gets the wrong path type at the `defineChildRoute<typeof parent>()` site, which shows up where its routes use path params.
 - A new endpoint never requires touching a registry — you add a file, and its parent picks it up via the `children` array.
 - File system navigation matches URL navigation. Searching `[orgId]/departments` finds every route under that subtree.
 - `c.var` is precisely typed at every depth without manual interface declarations.
@@ -155,60 +147,63 @@ import {
   createRouter,
   defineChildRoute,
   defineRootRoute,
-  makeHonoJsonRequest,
-  makeHonoNoContentResponse,
-  makeHonoResponse,
+  jsonRequest,
+  emptyResponse,
+  jsonResponse,
 } from 'hono-typed-router';
 
 const Thing = z.object({ id: z.string(), name: z.string() });
 const CreateThing = z.object({ name: z.string().min(1) });
 
 const apiRoute = defineRootRoute('/api', []);
-const thingsRoute = defineChildRoute<typeof apiRoute>()('/things');
-const thingRoute = defineChildRoute<typeof apiRoute>()('/things/:id');
+const thingsRoute = defineChildRoute(apiRoute, '/things');
+const thingRoute = defineChildRoute(apiRoute, '/things/:id');
 
 const makeRouter = createRouter();
 
 const collection = makeRouter(thingsRoute, ({ router, route }) => {
   const list = route('get', {
-    responses: { 200: makeHonoResponse(z.array(Thing), 'List of things') },
+    responses: { 200: jsonResponse(z.array(Thing), 'List of things') },
   });
   const create = route('post', {
-    request: makeHonoJsonRequest(CreateThing, 'Create a thing'),
-    responses: { 201: makeHonoResponse(Thing, 'Created') },
+    request: jsonRequest(CreateThing, 'Create a thing'),
+    responses: { 201: jsonResponse(Thing, 'Created') },
   });
 
-  router.openapi(list, async (c) => c.json(await db.things.list()));
-  router.openapi(create, async (c) => c.json(await db.things.create(c.req.valid('json')), 201));
-
-  return router;
+  return router
+    .openapi(list, async (c) => c.json(await db.things.list()))
+    .openapi(create, async (c) => c.json(await db.things.create(c.req.valid('json')), 201));
 });
 
 const item = makeRouter(thingRoute, ({ router, route }) => {
   const read = route('get', {
     responses: {
-      200: makeHonoResponse(Thing, 'A thing'),
-      404: makeHonoNoContentResponse('Not found'),
+      200: jsonResponse(Thing, 'A thing'),
+      404: emptyResponse('Not found'),
     },
   });
   const remove = route('delete', {
-    responses: { 204: makeHonoNoContentResponse('Deleted') },
+    responses: { 204: emptyResponse('Deleted') },
   });
 
-  router.openapi(read, async (c) => {
-    const thing = await db.things.find(c.req.param('id'));
-    return thing ? c.json(thing) : c.body(null, 404);
-  });
-  router.openapi(remove, async (c) => {
-    await db.things.delete(c.req.param('id'));
-    return c.body(null, 204);
-  });
-
-  return router;
+  return router
+    .openapi(read, async (c) => {
+      const thing = await db.things.find(c.req.param('id'));
+      return thing ? c.json(thing) : c.body(null, 404);
+    })
+    .openapi(remove, async (c) => {
+      await db.things.delete(c.req.param('id'));
+      return c.body(null, 204);
+    });
 });
 
 const app = makeRouter(apiRoute, ({ router }) => router, [collection, item])();
 ```
+
+Each factory returns its chain of `.openapi()` calls instead of calling `router.openapi(...)`
+and then returning `router`. Each call returns the router with that route added to its
+type; Hono's RPC client (`hc`, `testClient`) reads the routes from that type. The runtime is
+the same either way.
 
 ## Nesting children
 
@@ -216,17 +211,16 @@ Children can mount further children. Each level keeps its accumulated path and v
 
 ```ts
 const rootRoute = defineRootRoute('/api', []);
-const orgsRoute = defineChildRoute<typeof rootRoute>()('/organizations/:orgId');
-const deptsRoute = defineChildRoute<typeof orgsRoute>()('/departments');
-// deptsRoute.path is '/api/organizations/:orgId/departments'
+const orgsRoute = defineChildRoute(rootRoute, '/organizations/:orgId');
+const deptsRoute = defineChildRoute(orgsRoute, '/departments');
+// deptsRoute.path is '/api/organizations/:orgId/departments' (type and runtime value)
 
-const departments = makeRouter(deptsRoute, ({ router, route }) => {
+const departments = makeRouter(deptsRoute, ({ router, route }) =>
   router.openapi(
-    route('get', { responses: { 200: makeHonoResponse(z.array(Department), 'OK') } }),
+    route('get', { responses: { 200: jsonResponse(z.array(Department), 'OK') } }),
     async (c) => c.json(await db.departments.listFor(c.req.param('orgId'))),
-  );
-  return router;
-});
+  ),
+);
 
 const organization = makeRouter(orgsRoute, ({ router }) => router, [departments]);
 const root = makeRouter(rootRoute, ({ router }) => router, [organization])();
@@ -234,41 +228,37 @@ const root = makeRouter(rootRoute, ({ router }) => router, [organization])();
 
 ## Reusing context middleware across children
 
-A common pattern: load the parent resource once and expose it to all children.
+A common pattern: load the parent resource once and expose it to all children. The `bindOrganization` below is the `./_bind` module that `routes/organizations/[orgId]/index.ts` imports in the layout above.
 
 ```ts
 import type { ParamKeys } from 'hono/types';
 import type { RouteContext } from 'hono-typed-router';
 
-const bindOrganization = <P extends string, V extends object>(
-  ctx: RouteContext<P, V>,
-  param: ParamKeys<P>,
+// Typed over concrete vars; for a reusable, generic builder use `extendRouteContext`.
+// `NoInfer` keeps `P` inferred from the context's path rather than from the param name.
+export const bindOrganization = <P extends string>(
+  ctx: RouteContext<P, {}>,
+  param: NoInfer<ParamKeys<P>>,
 ) =>
   ctx.middleware<{ organization: Organization }>(async (c, next) => {
-    const id = c.req.param(param as string);
-    const organization = await db.organizations.find(id);
+    const id = c.req.param(param);
+    const organization = id ? await db.organizations.find(id) : null;
     if (!organization) return c.json({ error: 'NOT_FOUND' }, 404);
     c.set('organization', organization);
     await next();
   });
 
-const orgsRoute = bindOrganization(
-  defineChildRoute<typeof rootRoute>()('/organizations/:orgId'),
-  'orgId',
-);
+const orgContext = defineChildRoute(rootRoute, '/organizations/:orgId');
+const orgsRoute = bindOrganization(orgContext, 'orgId');
 
-const departments = makeRouter(
-  defineChildRoute<typeof orgsRoute>()('/departments'),
-  ({ router, route }) => {
-    router.openapi(
-      route('get', { responses: { 200: makeHonoResponse(z.array(Department), 'OK') } }),
-      async (c) => {
-        const org = c.var.organization; //  typed
-        return c.json(await db.departments.listFor(org.id));
-      },
-    );
-    return router;
-  },
+const departments = makeRouter(defineChildRoute(orgsRoute, '/departments'), ({ router, route }) =>
+  router.openapi(
+    route('get', { responses: { 200: jsonResponse(z.array(Department), 'OK') } }),
+    async (c) => {
+      const org = c.var.organization; //  typed
+      return c.json(await db.departments.listFor(org.id));
+    },
+  ),
 );
 ```
 
@@ -340,9 +330,9 @@ const makeRouter = createRouter({
 
 The factories run in order at declaration; the resulting middlewares run in order at request time.
 
-## Sharing a `base` RouteConfig across every route
+## Sharing `routeDefaults` across every route
 
-Use `base` to deep-merge a partial `RouteConfig` into every route built by this `makeRouter`. Common cases: a shared `401`/`403`/`422` response, project-wide `security`, default `tags`. Per-route values override base; arrays concat + dedupe; zod schemas at the same slot are unioned.
+Use `routeDefaults` to deep-merge a partial `RouteConfig` into every route built by this `makeRouter`. Common cases: a shared `401`/`403`/`422` response, project-wide `security`, default `tags`. Per-route values override the defaults; arrays concat + dedupe (except a route `security: []`, which opts out of the default `security`); zod schemas at the same slot are unioned. (`base` is the deprecated name of this option.)
 
 ```ts
 const Unauthorized = z.object({ error: z.literal('UNAUTHORIZED') });
@@ -350,12 +340,12 @@ const Forbidden = z.object({ error: z.literal('FORBIDDEN') });
 const BaseValidation = z.object({ code: z.literal('BASE_INVALID'), issues: z.array(z.string()) });
 
 const makeRouter = createRouter({
-  base: {
+  routeDefaults: {
     tags: ['v1'],
     responses: {
-      401: makeHonoResponse(Unauthorized, 'Unauthorized'),
-      403: makeHonoResponse(Forbidden, 'Forbidden'),
-      422: makeHonoResponse(BaseValidation, 'Validation error (default)'),
+      401: jsonResponse(Unauthorized, 'Unauthorized'),
+      403: jsonResponse(Forbidden, 'Forbidden'),
+      422: jsonResponse(BaseValidation, 'Validation error (default)'),
     },
   },
 });
@@ -365,17 +355,18 @@ const things = makeRouter(thingsRoute, ({ router, route }) => {
 
   const create = route('post', {
     tags: ['things'], // merged → ['v1', 'things']
-    request: makeHonoJsonRequest(CreateThing, 'Create a thing'),
+    request: jsonRequest(CreateThing, 'Create a thing'),
     responses: {
-      201: makeHonoResponse(Thing, 'Created'),
-      422: makeHonoResponse(RouteValidation, 'Validation error (route)'),
-      // 401 + 403 inherited from base; 422 schema becomes
+      201: jsonResponse(Thing, 'Created'),
+      422: jsonResponse(RouteValidation, 'Validation error (route)'),
+      // 401 + 403 inherited from routeDefaults; 422 schema becomes
       // ZodUnion<[BaseValidation, RouteValidation]> at both type & runtime.
     },
   });
 
-  router.openapi(create, async (c) => c.json(await db.things.create(c.req.valid('json')), 201));
-  return router;
+  return router.openapi(create, async (c) =>
+    c.json(await db.things.create(c.req.valid('json')), 201),
+  );
 });
 ```
 
@@ -383,23 +374,36 @@ The handler now has to satisfy a `responses` object containing `201`, `401`, `40
 
 ## Mutating every RouteConfig at runtime with `transformRoute`
 
-`transformRoute` is a `(RouteConfig) => RouteConfig` hook that runs after `createRoute()` (and after the `base` merge), before the config is handed to `routeMiddleware` factories. It does **not** change the static return type of `route()`; use it for runtime-only enrichments.
+`transformRoute` is a `(config: RouteConfig, meta: RouteHookMeta) => RouteConfig` hook that runs after `createRoute()` (and after the `routeDefaults` merge), before the config is handed to `routeMiddleware` factories. It does **not** change the static return type of `route()`; use it for runtime-only enrichments.
 
 ```ts
 const makeRouter = createRouter({
-  transformRoute: (route) => ({
-    ...route,
-    summary: route.summary ?? route.operationId,
-    tags: [...new Set([...(route.tags ?? []), route.method === 'get' ? 'read' : 'write'])],
+  transformRoute: (config) => ({
+    ...config,
+    summary: config.summary ?? config.operationId,
+    tags: [...new Set([...(config.tags ?? []), config.method === 'get' ? 'read' : 'write'])],
   }),
 });
 ```
 
-`route.path` is `'/'` here (unless `transformRoute` rewrites it): the full path lives on the router's base path,
-not on the config. Do not derive `operationId` from it (every route would get the
-same one); set `operationId` on each route instead.
+### Deriving `operationId` from the path
 
-Typical uses:
+`config.path` is relative to the router (usually `'/'`), so it is not unique. Use `meta.path`, the context's path joined with the route's path, and replace the characters that are not valid in an identifier:
+
+```ts
+const makeRouter = createRouter({
+  transformRoute: (config, meta) => ({
+    ...config,
+    // GET /api/things/:id -> 'get_api_things_id'
+    operationId:
+      config.operationId ?? `${config.method}_${meta.path}`.replaceAll(/[^A-Za-z0-9]+/g, '_'),
+  }),
+});
+```
+
+`meta.path` uses Hono's `:param` syntax, not OpenAPI's `{param}`. It is the full URL path for root contexts and value-form children (`defineChildRoute(parent, segment)`). For a curried child (`defineChildRoute<typeof parent>()(segment)`) it starts at the child's own segment, so two curried children with the same segment under different parents get the same `operationId`. Set `operationId` on those routes explicitly.
+
+Typical uses of `transformRoute`:
 
 - Fill in a default `summary` from the route's `operationId`.
 - Inject environment-specific tags (`tags: [...route.tags ?? [], process.env.STAGE]`).
@@ -407,32 +411,32 @@ Typical uses:
 
 ## Opting a route out of the global policy
 
-Two idiomatic options.
-
-**Tag the route and skip in the factory.** The factory sees the full `RouteConfig`, so use any field you like — `tags`, `operationId`, an extension property.
+**Set `security: []` on the route.** When `routeDefaults` sets a `security` requirement, a route with `security: []` opts out of it. The merged `security` is `[]` (also in the static type of `route()`), so `createScopeMiddleware` does not check scopes and the generated OpenAPI operation is public. This rule applies to `security` only: `tags: []` and other empty arrays are still merged with `routeDefaults`.
 
 ```ts
 const makeRouter = createRouter({
-  routeMiddleware: (route) => {
-    if (route.tags?.includes('public')) {
-      return async (_c, next) => next();
-    }
-    return createScopeMiddleware({ resolve: (c) => c.var.session.scopes })(route);
-  },
+  routeDefaults: { security: [{ bearer: ['things:read'] }] },
+  routeMiddleware: createScopeMiddleware({ resolve: (c) => c.var.session.scopes }),
 });
 
-// Declare the route as public
-route('get', { tags: ['public'], responses: { 200: okResponse } });
+makeRouter(apiRoute, ({ router, route }) => {
+  // Public: no scope check, `security: []` in the OpenAPI document.
+  const health = route('get', { security: [], responses: { 200: okResponse } });
+  // Inherits `routeDefaults.security`: requires `things:read`.
+  const list = route('post', { responses: { 200: okResponse } });
+  // ...
+  return router;
+});
 ```
 
-**Build a second router factory for public-only routes.** Useful when whole subtrees share the policy difference.
+**Build a second router factory for public-only routes.** Useful when whole subtrees share the policy difference, or when the policy is not driven by `security`.
 
 ```ts
 const makeAuthedRouter = createRouter({ routeMiddleware: scopeCheck });
 const makePublicRouter = createRouter();
 
-const health = makePublicRouter(defineChildRoute<typeof apiRoute>()('/health') /* ... */);
-const things = makeAuthedRouter(defineChildRoute<typeof apiRoute>()('/things') /* ... */);
+const health = makePublicRouter(defineChildRoute(apiRoute, '/health') /* ... */);
+const things = makeAuthedRouter(defineChildRoute(apiRoute, '/things') /* ... */);
 
 const app = makeAuthedRouter(apiRoute, ({ router }) => router, [health, things])();
 ```
@@ -459,42 +463,69 @@ const makeRouter = createRouter({
 
 ## Type-safe error handling in handlers
 
-Where `routeMiddleware` handles cross-cutting policy, `handler(c, fn).errors([...])`
+Where `routeMiddleware` handles cross-cutting policy, `handle(c, fn, arms)`
 handles per-handler failures — mapping thrown domain errors to responses while
 keeping the OpenAPI contract honest.
 
 ```ts
-import { handler, on, rethrow } from 'hono-typed-router';
+import { handle, matchErrors, onError, rethrow } from 'hono-typed-router';
+
+class ThingNotFound extends Error {
+  readonly _tag = 'ThingNotFound' as const;
+}
+
+class SlugTaken extends Error {
+  readonly _tag = 'SlugTaken' as const;
+  constructor(readonly slug: string) {
+    super();
+  }
+}
 
 const getThing = route('get', {
   request: { params: thingIdParam },
   responses: {
-    200: makeHonoResponse(Thing, 'The thing'),
-    404: makeHonoResponse(ErrorBody, 'Not found'),
-    409: makeHonoResponse(ErrorBody, 'Conflict'),
+    200: jsonResponse(Thing, 'The thing'),
+    404: jsonResponse(ErrorBody, 'Not found'),
+    409: jsonResponse(ErrorBody, 'Conflict'),
   },
 });
 
 router.openapi(getThing, (c) =>
-  handler(c, async ({ param: { id } }) => c.json(await thingsRepo.findOrFail(id), 200)).errors([
-    on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Thing not found' }, 404)),
-    on(UniqueConstraintError, (err, ec) => {
-      if (!err.columns.includes('slug')) return rethrow(); // defer to a later arm / rethrow
-      return ec.json({ message: 'Slug already taken' }, 409);
+  handle(
+    c,
+    async ({ param: { id } }) => c.json(await thingsRepo.findOrFail(id), 200),
+    matchErrors([ThingNotFound, SlugTaken], {
+      ThingNotFound: (_e, ec) => ec.json({ message: 'Thing not found' }, 404),
+      SlugTaken: (e, ec) => ec.json({ message: `Slug already taken: ${e.slug}` }, 409),
     }),
-  ]),
+  ),
 );
 ```
 
 Key points:
 
 - `fn` receives a **destructurable proxy** over validated inputs (`{ param, query, json, ... }`), each typed from the route. Targets are read lazily from `c.req.valid` and cached, so untouched targets are never read.
-- `.errors([...])` runs the body under the arms and **widens the return type with each arm's response**. Since that value is what `router.openapi(...)` type-checks, an arm returning a status the route did not declare in `responses` (or a body body shape that doesn't match) is a **compile error**. Remove the `404`/`409` from `responses` above and the handler stops type-checking.
-- Arms are reusable. Factor common ones into helpers:
+- `matchErrors(classes, handlers)` takes the error classes the route maps (TypeScript cannot infer what the body throws) and a handler per class, keyed by the class's literal `_tag`, or else its literal `name` (`override readonly name = 'X' as const`). The map is **exhaustive**: a missing key, an extra key, a class without a literal tag, or two classes with the same tag is a compile error. Each handler receives its own class's instance.
+- Errors are matched in list order by `instanceof`, so put a subclass before its parent. A handler that returns `rethrow()` passes the error to the next arm, or rethrows it if there is none.
+- `handle` runs the body under the arms and **widens the return type with each handler's response**. Since that value is what `router.openapi(...)` type-checks, a handler returning a status the route did not declare in `responses` (or a body shape that doesn't match) is a **compile error**. Remove the `404`/`409` from `responses` above and the handler stops type-checking. Without arms, the return type is exactly the body's.
+- `matchErrors` returns a list of plain error arms. The primitive is `onError(ErrorClass, handler)`: one arm, for one class. Use it for a class without a literal tag (such as a library's error), to decide per error whether to handle it, or for arms you reuse across routes, and spread `matchErrors(...)` next to it:
 
   ```ts
   export const recordNotFoundArm = (message: string) =>
-    on(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+    onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+
+  router.openapi(updateThing, (c) =>
+    handle(c, async ({ param: { id }, json }) => c.json(await thingsRepo.update(id, json), 200), [
+      ...matchErrors([SlugTaken], {
+        SlugTaken: (e, ec) => ec.json({ message: `Slug already taken: ${e.slug}` }, 409),
+      }),
+      onError(UniqueConstraintError, (err, ec) => {
+        if (!err.columns.includes('slug')) return rethrow(); // defer to a later arm / rethrow
+        return ec.json({ message: 'Slug already taken' }, 409);
+      }),
+      recordNotFoundArm('Thing not found'),
+    ]),
+  );
   ```
 
 - Need the dispatch without the input proxy? Use `handleErrors(body, arms, c)` directly — same semantics, same widened return type.
@@ -544,9 +575,11 @@ export const { defineRootRoute, defineChildRoute } = extendRouteContext<CtxKind>
 });
 
 // 4. Use it — fully typed, chainable, and still exposes `.middleware()`.
-const orgRoute = defineChildRoute<typeof rootRoute>()(
-  '/organizations/:organizationId',
-).bindRepository('organization', 'organizationId', () => organizationsRepository);
+const orgRoute = defineChildRoute(rootRoute, '/organizations/:organizationId').bindRepository(
+  'organization',
+  'organizationId',
+  () => organizationsRepository,
+);
 //    orgRoute.vars.organization is typed; bindRepository/middleware remain available.
 ```
 
@@ -557,21 +590,75 @@ recursion limit.
 
 ## Testing a router
 
-`OpenAPIHono` exposes `.request(path, init?)` — a fetch-style call against the in-process app. No server needed.
+Use `testClient` from `hono/testing`. It calls the app in-process, with the same typed
+client as `hc`: paths, params, request bodies and response bodies are typed from the
+routes. No server needed.
 
 ```ts
+import { testClient } from 'hono/testing';
 import { expect, it } from 'vitest';
 
-it('rejects requests missing scopes', async () => {
-  const app = makeApp({ session: { scopes: [] } });
-  const res = await app.request('/api/things', { method: 'POST' });
+const app = makeRouter(apiRoute, ({ router }) => router, [collection, item])();
+const client = testClient(app);
 
-  expect(res.status).toBe(403);
-  expect(await res.json()).toMatchObject({ error: 'E_FORBIDDEN' });
+it('creates a thing', async () => {
+  const res = await client.api.things.$post({ json: { name: 'Widget' } });
+
+  expect(res.status).toBe(201);
+  if (res.status === 201) {
+    const thing = await res.json(); // { id: string; name: string }
+    expect(thing.name).toBe('Widget');
+  }
+});
+
+it('rejects an invalid body', async () => {
+  // @ts-expect-error: `name` is required
+  const res = await client.api.things.$post({ json: {} });
+
+  expect(res.status).toBe(400);
+});
+
+it('reads a thing by id', async () => {
+  const res = await client.api.things[':id'].$get({ param: { id: '42' } });
+
+  expect([200, 404]).toContain(res.status);
 });
 ```
 
-For end-to-end tests of declared schemas, prefer `c.req.valid('json')` inside handlers and assert against the actual response body — the schema validates the request automatically when registered through `router.openapi(...)`.
+Things to know:
+
+- **Build the client from the root thunk.** The children's routes are part of the root app's
+  type, at their full paths. A child thunk on its own (`testClient(item())`) has full-path
+  types but serves its routes at its own segment, without the parent's middlewares, so its
+  requests return 404.
+- **Return the `.openapi()` chain from each factory** (see [A complete CRUD resource](#a-complete-crud-resource)).
+  A factory that calls `router.openapi(...)` and returns `router` works at runtime, but its
+  routes are not in the client's type.
+- **Pass `children` inline** (or `as const`). A children array stored in a variable typed
+  `(() => OpenAPIHono)[]` keeps the routes at runtime but drops them from the type. An
+  unannotated variable that mixes different thunks (`const kids = [collection, item]`) can
+  also collapse to one element type and lose some children's routes from the type.
+- **Response types come from `responses`.** `res.json()` is typed from the route's declared
+  responses (including `routeDefaults.responses`), not from the handler. `handle(c, fn, arms)`
+  is checked against the same `responses`, so an arm cannot return an undeclared status.
+- **Middleware responses are typed only if declared.** A `routeMiddleware` 403 (for example
+  from `createScopeMiddleware`) reaches the client at runtime; declare `403` in the route or
+  in `routeDefaults.responses` to type its body. Pass headers with the second argument:
+  `client.api.things.$post({ json }, { headers: { authorization: 'Bearer …' } })`.
+
+`OpenAPIHono` also exposes `.request(path, init?)`, a fetch-style call against the
+in-process app. It is the untyped fallback, for example to send malformed JSON, which the
+typed client cannot send:
+
+```ts
+const res = await app.request('/api/things', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: '{',
+});
+
+expect(res.status).toBe(400);
+```
 
 ## Composing with regular Hono middleware
 

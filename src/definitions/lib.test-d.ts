@@ -124,3 +124,70 @@ import type { RouteContext } from './types';
   expectTypeOf(child.path).toEqualTypeOf<'/a/b'>();
   expectTypeOf(child.vars).toEqualTypeOf<{ v: 1 }>();
 }
+
+// Value form: `defineChildRoute(parent, path)` infers the parent's path and vars
+{
+  const root = defineRootRoute('/api', []).middleware<{ user: { id: string } }>(
+    async (_c, next) => {
+      await next();
+    },
+  );
+
+  const things = defineChildRoute(root, '/things');
+  expectTypeOf(things.path).toEqualTypeOf<'/api/things'>();
+  expectTypeOf(things.vars).toEqualTypeOf<{ user: { id: string } }>();
+
+  const thing = defineChildRoute(things, '/:id');
+  expectTypeOf(thing.path).toEqualTypeOf<'/api/things/:id'>();
+  expectTypeOf(thing.vars).toEqualTypeOf<{ user: { id: string } }>();
+
+  // A `.middleware()` parent passes its added vars down.
+  const org = defineChildRoute(root, '/orgs/:orgId').middleware<{ org: { id: string } }>(
+    async (_c, next) => {
+      await next();
+    },
+  );
+
+  const depts = defineChildRoute(org, '/departments');
+  expectTypeOf(depts.path).toEqualTypeOf<'/api/orgs/:orgId/departments'>();
+  expectTypeOf(depts.vars).toEqualTypeOf<{ user: { id: string } } & { org: { id: string } }>();
+
+  // The curried form still compiles and agrees with the value form.
+  const curried = defineChildRoute<typeof root>()('/things');
+  expectTypeOf(curried.path).toEqualTypeOf<typeof things.path>();
+  expectTypeOf(curried.vars).toEqualTypeOf<typeof things.vars>();
+
+  // A non-literal segment widens to a template type, as in the curried form.
+  const dynamic = '/x' as string;
+  expectTypeOf(defineChildRoute(root, dynamic).path).toEqualTypeOf<`/api${string}`>();
+
+  // @ts-expect-error — the parent needs `vars`
+  defineChildRoute({ path: '/a' }, '/b');
+}
+
+// A root `'/'` (or `''`) parent does not double the slash, in either form.
+{
+  const slashRoot = defineRootRoute('/', []);
+  expectTypeOf(defineChildRoute(slashRoot, '/things').path).toEqualTypeOf<'/things'>();
+  expectTypeOf(defineChildRoute<typeof slashRoot>()('/things').path).toEqualTypeOf<'/things'>();
+  expectTypeOf(
+    defineChildRoute(defineChildRoute(slashRoot, '/things'), '/:id').path,
+  ).toEqualTypeOf<'/things/:id'>();
+
+  const emptyRoot = defineRootRoute('', []);
+  expectTypeOf(defineChildRoute(emptyRoot, '/things').path).toEqualTypeOf<'/things'>();
+
+  // A trailing slash is dropped only when the segment brings its own.
+  expectTypeOf(defineChildRoute(defineRootRoute('/api/', []), '/x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(defineChildRoute(slashRoot, 'things').path).toEqualTypeOf<'/things'>();
+}
+
+// A segment without a leading `/` is joined with one, in either form.
+{
+  const api = defineRootRoute('/api', []);
+  expectTypeOf(defineChildRoute(api, 'x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(defineChildRoute<typeof api>()('x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(defineChildRoute(defineChildRoute(api, 'x'), 'y').path).toEqualTypeOf<'/api/x/y'>();
+  expectTypeOf(defineChildRoute(defineRootRoute('', []), 'x').path).toEqualTypeOf<'/x'>();
+  expectTypeOf(defineChildRoute(api, '').path).toEqualTypeOf<'/api'>();
+}

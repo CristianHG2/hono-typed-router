@@ -1,6 +1,6 @@
 import type { Context, Input } from 'hono';
 import { handleErrors } from '../errors';
-import type { AnyArm, HandlerInvocation, ValidatedProxy } from './types';
+import type { AnyArm, ArmsResponse, HandlerInvocation, ValidatedProxy } from './types';
 
 const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I> => {
   const cached: Record<string, unknown> = {};
@@ -28,33 +28,51 @@ const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I>
 };
 
 /**
- * Wraps a route handler body with a destructurable {@link ValidatedProxy} over the
- * request's validated inputs and an opt-in `.errors([...])` step.
+ * Runs a route handler body with a destructurable {@link ValidatedProxy} over the
+ * request's validated inputs, optionally under error arms.
  *
- * The body runs at most once: awaiting the invocation directly (thenable) or via
- * `.errors([...])` both settle the same underlying promise. Each validation target
- * is pulled from `c.req.valid` lazily and cached, so untouched targets are never
- * read and touched ones are read once.
+ * Each validation target is pulled from `c.req.valid` lazily and cached, so untouched
+ * targets are never read and touched ones are read once. With `arms`, a thrown `Error`
+ * is dispatched through {@link handleErrors} and the result type is widened with each
+ * arm's response; without `arms` the result is exactly `Promise<R>`. Because the
+ * widened value is what `router.openapi(...)` checks, an arm that can emit a response
+ * the route did not declare is a compile error.
  *
  * ```ts
  * router.openapi(route, (c) =>
- *   handler(c, async ({ param: { id } }) => c.json(await findOrFail(id), 200))
- *     .errors([recordNotFoundArm('Not found')]),
+ *   handle(c, async ({ param: { id } }) => c.json(await findOrFail(id), 200), [
+ *     onError(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Not found' }, 404)),
+ *   ]),
  * );
  * ```
+ */
+export const handle = <I extends Input, R, const A extends ReadonlyArray<AnyArm> = readonly []>(
+  c: Context<any, any, I>,
+  fn: (proxy: ValidatedProxy<I>) => Promise<R>,
+  arms?: A,
+): Promise<R | ArmsResponse<A>> => {
+  const run = () => fn(buildProxy(c));
+
+  return arms === undefined ? run() : handleErrors(run, arms, c);
+};
+
+/**
+ * @deprecated Use {@link handle}: `handle(c, fn, arms)` replaces
+ * `handler(c, fn).errors(arms)`. Removed in 2.0.
+ *
+ * Returns a lazy thenable over `handle(c, fn)` with an opt-in `.errors([...])` step.
+ * The body runs at most once: awaiting the invocation directly and calling
+ * `.errors([...])` (in any order) settle the same underlying promise.
  */
 export const handler = <I extends Input, TResponse>(
   c: Context<any, any, I>,
   fn: (proxy: ValidatedProxy<I>) => Promise<TResponse>,
 ): HandlerInvocation<TResponse> => {
-  const proxy = buildProxy(c);
-  const run = () => fn(proxy);
-
   let pending: Promise<TResponse> | undefined;
 
   const settle = (): Promise<TResponse> => {
     if (pending === undefined) {
-      pending = run();
+      pending = handle(c, fn);
     }
 
     return pending;

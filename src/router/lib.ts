@@ -5,12 +5,40 @@ import type {
   BaseRouteConfig,
   CreateRouterOptions,
   MakeRouterFn,
+  RouteHookMeta,
   RouteMiddlewareFactory,
 } from './types';
 
 type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
 
-export const createRouter = <const TBase extends BaseRouteConfig = {}>(
+/**
+ * Builds a `makeRouter` function. Every router built from it shares the same
+ * `routeDefaults`, `transformRoute` and `routeMiddleware` hooks.
+ *
+ * When both `routeDefaults` and the deprecated `base` are set, `routeDefaults` wins
+ * at runtime and at the type level.
+ */
+export function createRouter<const TBase extends BaseRouteConfig = {}>(
+  options: Omit<CreateRouterOptions<TBase>, 'base'> & {
+    routeDefaults: TBase;
+    /** @deprecated Use `routeDefaults`. Ignored when `routeDefaults` is set. */
+    base?: BaseRouteConfig;
+  },
+): MakeRouterFn<TBase>;
+/**
+ * Builds a `makeRouter` function. Every router built from it shares the same
+ * `routeDefaults` (or the deprecated `base`), `transformRoute` and `routeMiddleware` hooks.
+ */
+export function createRouter<const TBase extends BaseRouteConfig = {}>(
+  options?: CreateRouterOptions<TBase>,
+): MakeRouterFn<TBase>;
+export function createRouter(
+  options: CreateRouterOptions<BaseRouteConfig> = {},
+): MakeRouterFn<BaseRouteConfig> {
+  return createRouterImpl(options);
+}
+
+const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
   options: CreateRouterOptions<TBase> = {},
 ): MakeRouterFn<TBase> => {
   const factories: RouteMiddlewareFactory[] = options.routeMiddleware
@@ -20,7 +48,8 @@ export const createRouter = <const TBase extends BaseRouteConfig = {}>(
     : [];
 
   // SAFETY: `BaseRouteConfig` is a partial route config; `deepMerge` only reads its own keys.
-  const base = options.base as Record<string, unknown> | undefined;
+  // `base` is the deprecated name of `routeDefaults`; `routeDefaults` wins when both are set.
+  const base = (options.routeDefaults ?? options.base) as Record<string, unknown> | undefined;
   const transformRoute = options.transformRoute;
 
   // SAFETY: erased implementation of `MakeRouterFn`; it returns the factory's result (or the
@@ -31,7 +60,9 @@ export const createRouter = <const TBase extends BaseRouteConfig = {}>(
     children?: (() => OpenAPIHono<any, any, any>)[],
   ) => {
     return () => {
-      const router = new OpenAPIHono().basePath(context.path);
+      // A value-form child's `path` is the full path; mounting under the parent adds the
+      // parent's part, so the router's own base path is the relative `segment`.
+      const router = new OpenAPIHono().basePath(context.segment ?? context.path);
 
       if (context.middlewares.length > 0) {
         router.use(...context.middlewares);
@@ -47,11 +78,12 @@ export const createRouter = <const TBase extends BaseRouteConfig = {}>(
         const merged = base ? deepMerge(base, incoming) : incoming;
 
         // SAFETY: `merged` is `method` + `path` + a route config typed by `route()`'s callers (plus
-        // the typed `base`); `createRoute` returns a copy plus `getRoutingPath`: a `RouteConfig`.
+        // the typed `routeDefaults`); `createRoute` returns a copy plus `getRoutingPath`: a `RouteConfig`.
         let declared = createRoute(merged as AnyRouteConfigInput) as RouteConfig;
+        const meta: RouteHookMeta = { path: toHonoPath(joinPath(context.path, declared.path)) };
 
         if (transformRoute) {
-          declared = transformRoute(declared);
+          declared = transformRoute(declared, meta);
         }
 
         if (factories.length > 0) {
@@ -59,10 +91,10 @@ export const createRouter = <const TBase extends BaseRouteConfig = {}>(
           // through the GET handlers, so the middleware also runs for HEAD. The path is
           // converted from OpenAPI `{param}` to Hono `:param` the same way zod-openapi does
           // when it registers the route, so both match the same requests.
-          const mws = factories.map((f) => f(declared));
+          const mws = factories.map((f) => f(declared, meta));
           router.on(
             declared.method.toUpperCase(),
-            declared.path.replaceAll(/\/{(.+?)}/g, '/:$1'),
+            toHonoPath(declared.path),
             // SAFETY: `factories.length > 0`, so `mws` is non-empty. The tuple cast picks the
             // `(method, path, ...handlers)` overload of `on`; a plain `MiddlewareHandler[]`
             // spread resolves to the `(method, path[])` one.
@@ -89,6 +121,16 @@ export const createRouter = <const TBase extends BaseRouteConfig = {}>(
       return app;
     };
   }) as MakeRouterFn<TBase>;
+};
+
+/** OpenAPI `{param}` segments become Hono `:param` segments (same regex @hono/zod-openapi uses). */
+const toHonoPath = (path: string): string => path.replaceAll(/\/{(.+?)}/g, '/:$1');
+
+// `'/'` is the context path itself; a root defined as `''` reads as `'/'`.
+const joinPath = (contextPath: string, routePath: string): string => {
+  const base = contextPath.replace(/\/$/, '');
+
+  return (routePath === '/' ? base : `${base}${routePath}`) || '/';
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
@@ -165,7 +207,10 @@ const deepMerge = (
     const routeVal = route[key];
     const baseVal = out[key];
 
-    if (Array.isArray(baseVal) && Array.isArray(routeVal)) {
+    if (key === 'security' && Array.isArray(routeVal) && routeVal.length === 0) {
+      // OpenAPI: an operation-level `security: []` removes the inherited requirement.
+      out[key] = routeVal;
+    } else if (Array.isArray(baseVal) && Array.isArray(routeVal)) {
       out[key] = mergeArrays(baseVal, routeVal);
     } else if (isPlainObject(baseVal) && isPlainObject(routeVal)) {
       out[key] = deepMerge(baseVal, routeVal);

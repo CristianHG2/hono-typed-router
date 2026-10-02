@@ -1,3 +1,3 @@
-export { handler } from './lib';
+export { handle, handler } from './lib';
 
-export type { ValidatedProxy, HandlerInvocation, HandlerFn, AnyArm, ArmsResponse } from './types';
+export type { ValidatedProxy, HandlerInvocation, AnyArm, ArmsResponse } from './types';

@@ -22,6 +22,14 @@ export interface RouteContext<TPath extends string, TVars extends object> {
   vars: TVars;
   middlewares: MiddlewareHandler[];
   middleware: MiddlewareFactory<TPath, TVars>;
+  /**
+   * Internal: the path relative to the parent, which `makeRouter` uses as the router's
+   * base path so that mounting under the parent does not prefix the parent path twice.
+   * Equals `path` for root contexts and curried children; for a value-form
+   * `defineChildRoute(parent, segment)` child, `path` is the full path and this is
+   * `segment`. When absent, `makeRouter` uses `path`.
+   */
+  readonly segment?: string;
 }
 
 export type DefineRootRouteFn = <TPath extends string, TVars extends object = {}>(
@@ -32,16 +40,46 @@ export type DefineRootRouteFn = <TPath extends string, TVars extends object = {}
 /** Anything carrying a path literal and a vars phantom: a base or an extended context. */
 export type ParentContext = { path: string; vars: object };
 
-/** A child's full path: the parent's path followed by the child's own segment. */
+/**
+ * A child's full path: the parent's path joined with the child's own segment by one `/`.
+ * A parent path that ends in `/` (the root `'/'`) drops that slash when the segment starts
+ * with one, so `'/'` + `'/things'` is `'/things'`, not `'//things'`. A segment without a
+ * leading `/` under a parent that does not end in one gets one inserted, so `'/api'` +
+ * `'things'` is `'/api/things'`. Mirrors `joinChildPath`.
+ */
 export type ChildPath<
-  TParent extends ParentContext,
+  TParentPath extends string,
   TPath extends string,
-> = `${TParent['path']}${TPath}`;
+> = TParentPath extends `${infer THead}/`
+  ? TPath extends `/${string}`
+    ? `${THead}${TPath}`
+    : `${TParentPath}${TPath}`
+  : string extends TPath
+    ? `${TParentPath}${TPath}`
+    : TPath extends `/${string}` | ''
+      ? `${TParentPath}${TPath}`
+      : `${TParentPath}/${TPath}`;
 
 export type ChildRouteFn<TParentContext extends ParentContext> = <TPath extends string>(
   path: TPath,
-) => RouteContext<ChildPath<TParentContext, TPath>, TParentContext['vars']>;
+) => RouteContext<ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
 
-export type DefineChildRouteFn = <
-  TParentContext extends ParentContext,
->() => ChildRouteFn<TParentContext>;
+export interface DefineChildRouteFn {
+  /**
+   * Value form: infers the parent's path and vars from the `parent` value. The child's
+   * runtime `path` is `parent.path` joined with `path` by `/` (the full path when every ancestor is a root
+   * or a value-form child; a parent `'/'` adds no extra slash). Needs the parent value at
+   * module load, so use the curried form when the parent module imports the child's
+   * router (a circular import).
+   */
+  <TPath extends string, TParentPath extends string, TParentVars extends object>(
+    parent: { path: TParentPath; vars: TParentVars },
+    path: TPath,
+  ): RouteContext<ChildPath<TParentPath, TPath>, TParentVars>;
+  /**
+   * Curried form: the parent is passed as a type only, so the child module needs no
+   * runtime import of the parent (safe in a circular import). The child's runtime
+   * `path` is its own segment.
+   */
+  <TParentContext extends ParentContext>(): ChildRouteFn<TParentContext>;
+}

@@ -1,11 +1,13 @@
 import { inspectRoutes } from 'hono/dev';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineRootRoute, defineChildRoute } from '../definitions';
-import { makeHonoJsonRequest, makeHonoResponse } from '../factories';
+import { defineRootRoute, defineChildRoute, extendRouteContext } from '../definitions';
+import type { ReaugmentContext, RouteContextBase, RouteContextKind } from '../definitions';
+import { jsonRequest, jsonResponse } from '../factories';
+import { createScopeMiddleware } from '../scopes';
 import { createRouter } from './lib';
 
-const okResponse = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
+const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
 describe('createRouter', () => {
   it('declares routes against a context base path', async () => {
@@ -115,11 +117,21 @@ describe('createRouter', () => {
     let ran = false;
     const ctx = defineRootRoute('/api', []);
 
+    const metaPaths: string[] = [];
+
     const router = createRouter({
-      transformRoute: (route) => ({ ...route, path: '/users/{id}' }),
-      routeMiddleware: () => async (_c, next) => {
-        ran = true;
-        await next();
+      transformRoute: (route, meta) => {
+        metaPaths.push(`transform:${meta.path}`);
+
+        return { ...route, path: '/users/{id}' };
+      },
+      routeMiddleware: (_route, meta) => {
+        metaPaths.push(`factory:${meta.path}`);
+
+        return async (_c, next) => {
+          ran = true;
+          await next();
+        };
       },
     })(ctx, ({ router, route }) => {
       const r = route('get', { responses: { 200: okResponse } });
@@ -131,6 +143,131 @@ describe('createRouter', () => {
     const res = await router.request('/api/users/42');
     expect(res.status).toBe(200);
     expect(ran).toBe(true);
+    // `meta.path` is computed before `transformRoute`, so the rewrite does not change it.
+    expect(metaPaths).toEqual(['transform:/api', 'factory:/api']);
+  });
+
+  it('passes meta.path: the full path for a value-form child, the segment for a curried one', () => {
+    const seen: string[] = [];
+    const root = defineRootRoute('/api', []);
+
+    const makeRouter = createRouter({
+      routeMiddleware: (route, meta) => {
+        seen.push(`${route.method} ${route.path} ${meta.path}`);
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    const build = (ctx: Parameters<typeof makeRouter>[0]) =>
+      makeRouter(ctx, ({ router, route }) => {
+        route('get', { responses: { 200: okResponse } });
+
+        return router;
+      })();
+
+    build(defineChildRoute(root, '/things'));
+    build(defineChildRoute<typeof root>()('/things'));
+    build(defineRootRoute('', []));
+
+    expect(seen).toEqual(['get / /api/things', 'get / /things', 'get / /']);
+  });
+
+  it('normalizes meta.path to Hono :param syntax and never doubles slashes', () => {
+    const seen: string[] = [];
+
+    const makeRouter = createRouter({
+      routeMiddleware: (_route, meta) => {
+        seen.push(meta.path);
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    makeRouter(defineChildRoute(defineRootRoute('/', []), '/things'), ({ router, route }) => {
+      // `path` is not part of the typed input; a cast is the only way to declare `{param}` here.
+      route('get', { path: '/{id}', responses: { 200: okResponse } } as never);
+
+      return router;
+    })();
+    makeRouter(defineRootRoute('/', []), ({ router, route }) => {
+      route('get', { path: '/x', responses: { 200: okResponse } } as never);
+
+      return router;
+    })();
+
+    expect(seen).toEqual(['/things/:id', '/x']);
+  });
+
+  it('joins a value-form child of a root `/` without a double slash and mounts it once', async () => {
+    const root = defineRootRoute('/', []);
+    const things = defineChildRoute(root, '/things');
+    expect(things.path).toBe('/things');
+    expect(defineChildRoute(things, '/:id').path).toBe('/things/:id');
+    expect(defineChildRoute(defineRootRoute('', []), '/things').path).toBe('/things');
+    expect(defineChildRoute(defineRootRoute('/api/', []), '/x').path).toBe('/api/x');
+
+    const makeRouter = createRouter();
+
+    const thingsRouter = makeRouter(things, ({ router, route }) => {
+      const list = route('get', { responses: { 200: okResponse } });
+      expect(list.path).toBe('/');
+      router.openapi(list, (c) => c.json({ ok: true }, 200));
+
+      return router;
+    });
+
+    const app = makeRouter(root, () => {}, [thingsRouter])();
+
+    expect((await app.request('/things')).status).toBe(200);
+
+    const paths = inspectRoutes(app)
+      .filter((r) => !r.isMiddleware)
+      .map((r) => r.path);
+
+    expect(paths).toEqual(['/things']);
+  });
+
+  it('joins a child segment without a leading `/` with one and serves it where meta.path says', async () => {
+    const root = defineRootRoute('/api', []);
+    const x = defineChildRoute(root, 'x');
+    expect(x.path).toBe('/api/x');
+    expect(defineChildRoute(x, 'y').path).toBe('/api/x/y');
+    expect(defineChildRoute(defineRootRoute('', []), 'x').path).toBe('/x');
+    expect(defineChildRoute(root, '').path).toBe('/api');
+
+    const seen: string[] = [];
+
+    const makeRouter = createRouter({
+      routeMiddleware: [
+        (_route, meta) => async (_c, next) => {
+          seen.push(meta.path);
+          await next();
+        },
+      ],
+    });
+
+    const xRouter = makeRouter(x, ({ router, route }) =>
+      router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+        c.json({ ok: true }, 200),
+      ),
+    );
+
+    const app = makeRouter(root, () => {}, [xRouter])();
+
+    expect((await app.request('/api/x')).status).toBe(200);
+    expect((await app.request('/apix')).status).toBe(404);
+    expect(seen).toEqual(['/api/x']);
+
+    const paths = inspectRoutes(app)
+      .filter((r) => !r.isMiddleware)
+      .map((r) => r.path);
+
+    expect(paths).toEqual(['/api/x']);
   });
 
   it('runs context middlewares, then routeMiddleware in order, then validators, then the handler', async () => {
@@ -187,7 +324,7 @@ describe('createRouter', () => {
       routeMiddleware: () => async (c) => c.json({ error: 'forbidden' }, 403),
     })(ctx, ({ router, route }) => {
       const r = route('post', {
-        request: makeHonoJsonRequest(z.object({ name: z.string() }), 'Body'),
+        request: jsonRequest(z.object({ name: z.string() }), 'Body'),
         responses: { 200: okResponse },
       });
 
@@ -279,6 +416,78 @@ describe('createRouter', () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
+  it('mounts three levels of value-form children at single-prefixed URLs', async () => {
+    const root = defineRootRoute('/api', []).middleware<{ user: string }>(async (c, next) => {
+      c.set('user', 'u1');
+      await next();
+    });
+
+    const orgs = defineChildRoute(root, '/orgs');
+
+    const org = defineChildRoute(orgs, '/:orgId').middleware<{ orgId: string }>(async (c, next) => {
+      c.set('orgId', c.req.param('orgId'));
+      await next();
+    });
+
+    const members = defineChildRoute(org, '/members');
+    const makeRouter = createRouter();
+
+    expect(members.path).toBe('/api/orgs/:orgId/members');
+
+    const membersRouter = makeRouter(members, ({ router, route }) => {
+      const list = route('get', {
+        responses: {
+          200: jsonResponse(z.object({ user: z.string(), orgId: z.string() }), 'OK'),
+        },
+      });
+
+      router.openapi(list, (c) => c.json({ user: c.var.user, orgId: c.var.orgId }, 200));
+
+      return router;
+    });
+
+    const orgRouter = makeRouter(org, () => {}, [membersRouter]);
+    const orgsRouter = makeRouter(orgs, () => {}, [orgRouter]);
+    const app = makeRouter(root, () => {}, [orgsRouter])();
+
+    const res = await app.request('/api/orgs/o1/members');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ user: 'u1', orgId: 'o1' });
+    expect((await app.request('/api/api/orgs/o1/members')).status).toBe(404);
+
+    const paths = inspectRoutes(app).map((r) => r.path);
+    expect(paths).toContain('/api/orgs/:orgId/members');
+    expect(paths.some((p) => p.includes('/api/api') || p.includes('/orgs/orgs'))).toBe(false);
+  });
+
+  it('mounts a value-form child of an extended context once', async () => {
+    interface Ctx<P extends string, V extends object> extends RouteContextBase<CtxKind, P, V> {
+      tag: () => ReaugmentContext<CtxKind, P, V>;
+    }
+
+    interface CtxKind extends RouteContextKind {
+      type: Ctx<this['path'] & string, this['vars'] & object>;
+    }
+
+    const ext = extendRouteContext<CtxKind>({ tag: (ctx) => () => ctx });
+    const root = ext.defineRootRoute('/api');
+    const things = ext.defineChildRoute(root, '/things').tag();
+    const makeRouter = createRouter();
+
+    expect(things.path).toBe('/api/things');
+
+    const thingsRouter = makeRouter(things, ({ router, route }) => {
+      router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+        c.json({ ok: true }, 200),
+      );
+
+      return router;
+    });
+
+    const app = makeRouter(root, () => {}, [thingsRouter])();
+    expect((await app.request('/api/things')).status).toBe(200);
+  });
+
   it('accepts a single routeMiddleware (not wrapped in array)', async () => {
     let ran = false;
     const ctx = defineRootRoute('/api', []);
@@ -327,14 +536,14 @@ describe('createRouter', () => {
     expect(returnedFromRoute?.tags).toEqual(['audited']);
   });
 
-  it('deep-merges base RouteConfig into each declared route', async () => {
-    const errResponse = makeHonoResponse(z.object({ error: z.string() }), 'Unauthorized');
+  it('deep-merges routeDefaults into each declared route', async () => {
+    const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
     let observed: { responses?: Record<string | number, unknown> } | undefined;
 
     const ctx = defineRootRoute('/api', []);
 
     const makeRouter = createRouter({
-      base: { responses: { 401: errResponse } },
+      routeDefaults: { responses: { 401: errResponse } },
       routeMiddleware: (route) => {
         observed = route as never;
 
@@ -356,12 +565,12 @@ describe('createRouter', () => {
     expect(res.status).toBe(200);
   });
 
-  it('concatenates and dedupes arrays when merging base', async () => {
+  it('concatenates and dedupes arrays when merging routeDefaults', async () => {
     let observedTags: readonly string[] | undefined;
     const ctx = defineRootRoute('/api', []);
 
     const makeRouter = createRouter({
-      base: { tags: ['common', 'shared'] },
+      routeDefaults: { tags: ['common', 'shared'] },
       routeMiddleware: (route) => {
         observedTags = route.tags;
 
@@ -382,14 +591,14 @@ describe('createRouter', () => {
   });
 
   it('lets per-route values win on overlapping leaf keys', async () => {
-    const baseResp = makeHonoResponse(z.object({ from: z.literal('base') }), 'base');
-    const routeResp = makeHonoResponse(z.object({ from: z.literal('route') }), 'route');
+    const baseResp = jsonResponse(z.object({ from: z.literal('base') }), 'base');
+    const routeResp = jsonResponse(z.object({ from: z.literal('route') }), 'route');
     let observed: { responses?: Record<string | number, { description?: string }> } | undefined;
 
     const ctx = defineRootRoute('/api', []);
 
     const makeRouter = createRouter({
-      base: { responses: { 200: baseResp } },
+      routeDefaults: { responses: { 200: baseResp } },
       routeMiddleware: (route) => {
         observed = route as never;
 
@@ -409,11 +618,116 @@ describe('createRouter', () => {
     expect(observed?.responses?.[200]?.description).toBe('route');
   });
 
+  it('lets a route opt out of routeDefaults security with security: []', async () => {
+    const ctx = defineRootRoute('/api', []);
+
+    const makeRouter = createRouter({
+      routeDefaults: { security: [{ bearer: ['things:read'] }] },
+      routeMiddleware: createScopeMiddleware({ resolve: () => [] }),
+    });
+
+    const app = makeRouter(ctx, ({ router, route }) => {
+      const open = route('get', { security: [], responses: { 200: okResponse } });
+      const guarded = route('post', { responses: { 200: okResponse } });
+      router.openapi(open, (c) => c.json({ ok: true }, 200));
+      router.openapi(guarded, (c) => c.json({ ok: true }, 200));
+
+      return router;
+    })();
+
+    expect((await app.request('/api')).status).toBe(200);
+    expect((await app.request('/api', { method: 'POST' })).status).toBe(403);
+
+    const doc = app.getOpenAPIDocument({
+      openapi: '3.0.0',
+      info: { title: 'test', version: '1.0.0' },
+    });
+
+    expect(doc.paths?.['/api']?.get?.security).toEqual([]);
+    expect(doc.paths?.['/api']?.post?.security).toEqual([{ bearer: ['things:read'] }]);
+  });
+
+  it('keeps an empty tags array additive when merging routeDefaults', async () => {
+    let observedTags: readonly string[] | undefined;
+    const ctx = defineRootRoute('/api', []);
+
+    const makeRouter = createRouter({
+      routeDefaults: { tags: ['api'] },
+      routeMiddleware: (route) => {
+        observedTags = route.tags;
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    makeRouter(ctx, ({ router, route }) => {
+      const r = route('get', { tags: [], responses: { 200: okResponse } });
+      router.openapi(r, (c) => c.json({ ok: true }, 200));
+
+      return router;
+    })();
+
+    expect(observedTags).toEqual(['api']);
+  });
+
+  it('still accepts the deprecated base option', async () => {
+    let observedTags: readonly string[] | undefined;
+    const ctx = defineRootRoute('/api', []);
+
+    const makeRouter = createRouter({
+      base: { tags: ['api'] },
+      routeMiddleware: (route) => {
+        observedTags = route.tags;
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    makeRouter(ctx, ({ router, route }) => {
+      const r = route('get', { tags: ['things'], responses: { 200: okResponse } });
+      router.openapi(r, (c) => c.json({ ok: true }, 200));
+
+      return router;
+    })();
+
+    expect(observedTags).toEqual(['api', 'things']);
+  });
+
+  it('prefers routeDefaults over base when both are set', async () => {
+    let observedTags: readonly string[] | undefined;
+    const ctx = defineRootRoute('/api', []);
+
+    const makeRouter = createRouter({
+      routeDefaults: { tags: ['new'] },
+      base: { tags: ['old'] },
+      routeMiddleware: (route) => {
+        observedTags = route.tags;
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    makeRouter(ctx, ({ router, route }) => {
+      const r = route('get', { responses: { 200: okResponse } });
+      router.openapi(r as never, (c) => c.json({ ok: true }) as never);
+
+      return router;
+    })();
+
+    expect(observedTags).toEqual(['new']);
+  });
+
   it('unions zod schemas when base and route define the same status', async () => {
     const baseSchema = z.object({ code: z.literal('BASE_INVALID') });
     const routeSchema = z.object({ code: z.literal('ROUTE_INVALID') });
-    const baseResp = makeHonoResponse(baseSchema, 'Validation (base)');
-    const routeResp = makeHonoResponse(routeSchema, 'Validation (route)');
+    const baseResp = jsonResponse(baseSchema, 'Validation (base)');
+    const routeResp = jsonResponse(routeSchema, 'Validation (route)');
 
     let observed:
       | {
@@ -424,7 +738,7 @@ describe('createRouter', () => {
     const ctx = defineRootRoute('/api', []);
 
     const makeRouter = createRouter({
-      base: { responses: { 422: baseResp } },
+      routeDefaults: { responses: { 422: baseResp } },
       routeMiddleware: (route) => {
         observed = route as never;
 
@@ -448,8 +762,8 @@ describe('createRouter', () => {
     expect(mergedSchema!.safeParse({ code: 'NEITHER' }).success).toBe(false);
   });
 
-  it('applies base merge then transformRoute', async () => {
-    const errResponse = makeHonoResponse(z.object({ error: z.string() }), 'Unauthorized');
+  it('applies the routeDefaults merge, then transformRoute', async () => {
+    const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
 
     let observed:
       | { responses?: Record<string | number, unknown>; tags?: readonly string[] }
@@ -458,7 +772,7 @@ describe('createRouter', () => {
     const ctx = defineRootRoute('/api', []);
 
     const makeRouter = createRouter({
-      base: { responses: { 401: errResponse } },
+      routeDefaults: { responses: { 401: errResponse } },
       transformRoute: (route) => ({
         ...route,
         tags: [`has-${Object.keys(route.responses).length}-responses`],

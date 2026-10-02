@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineRootRoute } from './definitions';
-import { makeHonoResponse } from './factories';
+import { jsonResponse } from './factories';
 import { createRouter } from './router';
 import { createScopeMiddleware } from './scopes';
 
-const okResponse = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
+const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
 const buildApp = (
   available: readonly string[],
@@ -80,12 +80,14 @@ describe('createScopeMiddleware', () => {
     const route = (security?: { oauth2: string[] }[]) =>
       ({ method: 'get', path: '/', responses: {}, security }) as never;
 
-    expect(factory(route([{ oauth2: ['things.read', 'things.write'] }])).name).toBe(
+    const meta = { path: '/' };
+
+    expect(factory(route([{ oauth2: ['things.read', 'things.write'] }]), meta).name).toBe(
       'requireScopes:things.read+things.write',
     );
-    expect(factory(route([{ oauth2: ['has space', 'f(x)'] }])).name).toBe(
+    expect(factory(route([{ oauth2: ['has space', 'f(x)'] }]), meta).name).toBe(
       'requireScopes:has_space+f_x_',
     );
-    expect(factory(route()).name).toBe('requireScopes');
+    expect(factory(route(), meta).name).toBe('requireScopes');
   });
 });

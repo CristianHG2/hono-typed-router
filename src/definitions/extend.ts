@@ -100,9 +100,17 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
     path: TPath,
     middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
   ) => ReaugmentContext<K, TPath, TVars>;
-  defineChildRoute: <TParentContext extends ParentContext>() => <TPath extends string>(
-    path: TPath,
-  ) => ReaugmentContext<K, ChildPath<TParentContext, TPath>, TParentContext['vars']>;
+  defineChildRoute: {
+    /** Value form; see the base `defineChildRoute`. */
+    <TPath extends string, TParentPath extends string, TParentVars extends object>(
+      parent: { path: TParentPath; vars: TParentVars },
+      path: TPath,
+    ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
+    /** Curried form (type-only parent); see the base `defineChildRoute`. */
+    <TParentContext extends ParentContext>(): <TPath extends string>(
+      path: TPath,
+    ) => ReaugmentContext<K, ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
+  };
 }
 
 /**
@@ -162,7 +170,9 @@ export function extendRouteContext<K extends RouteContextKind>(
   return {
     defineRootRoute: ((path: string, middlewares: MiddlewareHandler[] = []) =>
       augment(defineRootRouteBase(path, middlewares))) as never,
-    defineChildRoute: (() => (path: string) =>
-      augment(defineChildRouteBase<RouteContext<string, object>>()(path))) as never,
+    defineChildRoute: ((...args: [] | [ParentContext, string]) =>
+      args.length === 0
+        ? (path: string) => augment(defineChildRouteBase<RouteContext<string, object>>()(path))
+        : augment(defineChildRouteBase(args[0], args[1]))) as never,
   };
 }
