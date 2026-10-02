@@ -8,3 +8,8 @@ vitest.config.ts
 .gitignore
 .github
 .DS_Store
+tools
+oxlint.config.ts
+.oxfmtrc.json
+lefthook.yml
+commitlint.config.ts

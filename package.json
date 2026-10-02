@@ -60,7 +60,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:types": "tsc -p tsconfig.test-types.json --noEmit",
-    "prepublishOnly": "pnpm typecheck && pnpm test:types && pnpm test && pnpm build"
+    "prepublishOnly": "pnpm typecheck && pnpm test:types && pnpm test && pnpm build",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "check": "pnpm typecheck && pnpm test:types && pnpm lint && pnpm fmt:check && pnpm test",
+    "prepare": "lefthook install"
   },
   "peerDependencies": {
     "@hono/zod-openapi": "^1.1.5",
@@ -68,15 +74,26 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@hono/zod-openapi": "^1.6.3",
+    "@oxlint/plugins": "1.86.0",
     "@types/node": "^26.6.4",
     "expect-type": "^1.4.0",
     "hono": "^4.13.12",
+    "lefthook": "^2.1.16",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
     "tsdown": "^0.23.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.2",
     "vitest": "^5.0.3",
     "zod": "^4.6.5"
   },
-  "packageManager": "pnpm@10.26.2"
+  "packageManager": "pnpm@10.26.2",
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "lefthook"
+    ]
+  }
 }
