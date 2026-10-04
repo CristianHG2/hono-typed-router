@@ -16,8 +16,8 @@ class RecordNotFoundError extends Error {}
 const buildRouter = (shouldThrow: boolean) => {
   const ctx = defineRootRoute('/api', []);
 
-  return createRouter()(ctx, ({ router, route }) => {
-    const r = route('get', { responses: { 200: okResponse, 404: notFound } });
+  return createRouter()(ctx, ({ router, defineRoute }) => {
+    const r = defineRoute('get', { responses: { 200: okResponse, 404: notFound } });
     router.openapi(
       r as never,
       ((c: Context) =>

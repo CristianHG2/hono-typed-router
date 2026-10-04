@@ -21,8 +21,8 @@ const buildApp = (
     }),
   });
 
-  return makeRouter(ctx, ({ router, route }) => {
-    const r = route('get', { security, responses: { 200: okResponse } });
+  return makeRouter(ctx, ({ router, defineRoute }) => {
+    const r = defineRoute('get', { security, responses: { 200: okResponse } });
     router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
     return router;

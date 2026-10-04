@@ -64,8 +64,8 @@ class ConflictError extends Error {}
 
 // Inside `router.openapi`: the proxy is typed from the route, and a declared arm status
 // type-checks.
-createRouter()(defineRootRoute('/api/:id', []), ({ router, route }) => {
-  const declared = route('post', {
+createRouter()(defineRootRoute('/api/:id', []), ({ router, defineRoute }) => {
+  const declared = defineRoute('post', {
     request: { params: z.object({ id: z.string() }) },
     responses: { 200: ok, 409: conflict },
   });
@@ -87,8 +87,8 @@ createRouter()(defineRootRoute('/api/:id', []), ({ router, route }) => {
 });
 
 // An arm response the route does NOT declare is a compile error.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     // @ts-expect-error — the 409 arm response is absent from `responses`
     handle(c, async () => c.json({ ok: true }, 200), [
@@ -100,8 +100,8 @@ createRouter()(ctx, ({ router, route }) => {
 });
 
 // An async arm that only rethrows adds nothing to the response type.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     handle(c, async () => c.json({ ok: true }, 200), [
       onError(ConflictError, async () => rethrow()),
@@ -112,8 +112,8 @@ createRouter()(ctx, ({ router, route }) => {
 });
 
 // The body returning an undeclared status is a compile error.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     // @ts-expect-error — 500 is absent from `responses`
     handle(c, async () => c.json({ ok: true }, 500)),
@@ -199,8 +199,8 @@ createRouter()(ctx, ({ router, route }) => {
 }
 
 // A response an arm can emit that IS declared on the route type-checks.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok, 409: conflict } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok, 409: conflict } });
   router.openapi(declared, (c) =>
     handler(c, async () => c.json({ ok: true }, 200)).errors([
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
@@ -211,8 +211,8 @@ createRouter()(ctx, ({ router, route }) => {
 });
 
 // A response an arm can emit that the route does NOT declare is a compile error.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     // @ts-expect-error — the 409 arm response is absent from `responses`
     handler(c, async () => c.json({ ok: true }, 200)).errors([
@@ -224,8 +224,8 @@ createRouter()(ctx, ({ router, route }) => {
 });
 
 // An async arm that only rethrows adds nothing to the response type (no `symbol` leak).
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     handler(c, async () => c.json({ ok: true }, 200)).errors([
       on(ConflictError, async () => rethrow()),
@@ -236,8 +236,8 @@ createRouter()(ctx, ({ router, route }) => {
 });
 
 // The body returning an undeclared status is likewise a compile error.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok } });
   router.openapi(declared, (c) =>
     // @ts-expect-error — 500 is absent from `responses`
     handler(c, async () => c.json({ ok: true }, 500)),

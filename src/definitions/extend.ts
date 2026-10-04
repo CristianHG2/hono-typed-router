@@ -3,7 +3,13 @@ import {
   defineChildRoute as defineChildRouteBase,
   defineRootRoute as defineRootRouteBase,
 } from './lib';
-import type { ChildPath, NoRedeclare, ParentContext, RouteContext } from './types';
+import type {
+  ChildPath,
+  DeferredChildRouteFn,
+  NoRedeclare,
+  ParentContext,
+  RouteContext,
+} from './types';
 
 /**
  * Higher-kinded slot used to pass an (unapplied) two-parameter context interface
@@ -107,9 +113,12 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
       path: TPath,
     ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
     /** Curried form (type-only parent); see the base `defineChildRoute`. */
-    <TParentContext extends ParentContext>(): <TPath extends string>(
-      path: TPath,
-    ) => ReaugmentContext<K, ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
+    <TParentContext extends ParentContext>(): DeferredChildRouteFn<
+      TParentContext,
+      <TPath extends string>(
+        path: TPath,
+      ) => ReaugmentContext<K, ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>
+    >;
   };
 }
 

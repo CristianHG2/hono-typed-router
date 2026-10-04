@@ -1,8 +1,10 @@
 import { inspectRoutes } from 'hono/dev';
+import type { MiddlewareHandler } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineRootRoute, defineChildRoute, extendRouteContext } from '../definitions';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from '../definitions';
+import { getRouteIdentity } from '../definitions/lib';
 import { jsonRequest, jsonResponse } from '../factories';
 import { createScopeMiddleware } from '../scopes';
 import { createRouter } from './lib';
@@ -14,8 +16,8 @@ describe('createRouter', () => {
     const ctx = defineRootRoute('/api', []);
     const makeRouter = createRouter();
 
-    const router = makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    const router = makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -26,14 +28,30 @@ describe('createRouter', () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
+  it('passes the same function as defineRoute and the deprecated route', async () => {
+    const ctx = defineRootRoute('/api', []);
+    let same = false;
+
+    const router = createRouter()(ctx, ({ router, defineRoute, route }) => {
+      same = route === defineRoute;
+      const r = route('get', { responses: { 200: okResponse } });
+      router.openapi(r as never, (c) => c.json({ ok: true }) as never);
+
+      return router;
+    })();
+
+    expect(same).toBe(true);
+    expect((await router.request('/api')).status).toBe(200);
+  });
+
   it('applies context middlewares', async () => {
     const ctx = defineRootRoute('/api', []).middleware<{ hit: boolean }>(async (c, next) => {
       c.set('hit', true);
       await next();
     });
 
-    const router = createRouter()(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    const router = createRouter()(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: c.get('hit' as never) === true }) as never);
 
       return router;
@@ -59,8 +77,8 @@ describe('createRouter', () => {
           await next();
         },
       ],
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -79,8 +97,8 @@ describe('createRouter', () => {
         ran = true;
         await next();
       },
-    })(ctx, ({ router, route }) => {
-      const r = route('post', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('post', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -97,8 +115,8 @@ describe('createRouter', () => {
 
     const router = createRouter({
       routeMiddleware: () => async (c) => c.json({ blocked: true }, 403),
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => {
         handlerRan = true;
 
@@ -133,8 +151,8 @@ describe('createRouter', () => {
           await next();
         };
       },
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -147,7 +165,7 @@ describe('createRouter', () => {
     expect(metaPaths).toEqual(['transform:/api', 'factory:/api']);
   });
 
-  it('passes meta.path: the full path for a value-form child, the segment for a curried one', () => {
+  it('passes meta.path from a directly called thunk: the full path for a value-form child, the segment for a curried one', () => {
     const seen: string[] = [];
     const root = defineRootRoute('/api', []);
 
@@ -162,8 +180,8 @@ describe('createRouter', () => {
     });
 
     const build = (ctx: Parameters<typeof makeRouter>[0]) =>
-      makeRouter(ctx, ({ router, route }) => {
-        route('get', { responses: { 200: okResponse } });
+      makeRouter(ctx, ({ router, defineRoute }) => {
+        defineRoute('get', { responses: { 200: okResponse } });
 
         return router;
       })();
@@ -173,6 +191,86 @@ describe('createRouter', () => {
     build(defineRootRoute('', []));
 
     expect(seen).toEqual(['get / /api/things', 'get / /things', 'get / /']);
+  });
+
+  it('passes the full mounted path as meta.path for curried children and grandchildren', async () => {
+    const seen: string[] = [];
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute<typeof root>()('/things');
+    const thing = defineChildRoute<typeof things>()('/:id');
+
+    const makeRouter = createRouter({
+      routeMiddleware: (_route, meta) => {
+        seen.push(meta.path);
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    const thingRouter = makeRouter(thing, ({ router, defineRoute }) =>
+      router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+        c.json({ ok: true }, 200),
+      ),
+    );
+
+    const thingsRouter = makeRouter(
+      things,
+      ({ router, defineRoute }) =>
+        router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+          c.json({ ok: true }, 200),
+        ),
+      [thingRouter],
+    );
+
+    const app = makeRouter(root, () => {}, [thingsRouter])();
+
+    expect(seen).toEqual(['/api/things', '/api/things/:id']);
+    expect((await app.request('/api/things')).status).toBe(200);
+    expect((await app.request('/api/things/1')).status).toBe(200);
+
+    const paths = inspectRoutes(app)
+      .filter((r) => !r.isMiddleware)
+      .map((r) => r.path);
+
+    expect(paths).toEqual(['/api/things', '/api/things/:id']);
+
+    // The same thunk called directly has no parent: meta.path is the curried segment.
+    seen.length = 0;
+    thingsRouter();
+    expect(seen).toEqual(['/things', '/things/:id']);
+  });
+
+  it('gives transformRoute the full mounted path of a curried child', () => {
+    const operationIds: unknown[] = [];
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute<typeof root>()('/things');
+
+    const makeRouter = createRouter({
+      transformRoute: (route, meta) => ({
+        ...route,
+        operationId: `${route.method}${meta.path.replaceAll(/[/:]+/g, '_')}`,
+      }),
+      routeMiddleware: (route) => {
+        operationIds.push(route.operationId);
+
+        return async (_c, next) => {
+          await next();
+        };
+      },
+    });
+
+    const thingsRouter = makeRouter(things, ({ router, defineRoute }) => {
+      defineRoute('get', { responses: { 200: okResponse } });
+      defineRoute('post', { path: '/{id}', responses: { 200: okResponse } } as never);
+
+      return router;
+    });
+
+    makeRouter(root, () => {}, [thingsRouter])();
+
+    expect(operationIds).toEqual(['get_api_things', 'post_api_things_id']);
   });
 
   it('normalizes meta.path to Hono :param syntax and never doubles slashes', () => {
@@ -188,14 +286,14 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(defineChildRoute(defineRootRoute('/', []), '/things'), ({ router, route }) => {
+    makeRouter(defineChildRoute(defineRootRoute('/', []), '/things'), ({ router, defineRoute }) => {
       // `path` is not part of the typed input; a cast is the only way to declare `{param}` here.
-      route('get', { path: '/{id}', responses: { 200: okResponse } } as never);
+      defineRoute('get', { path: '/{id}', responses: { 200: okResponse } } as never);
 
       return router;
     })();
-    makeRouter(defineRootRoute('/', []), ({ router, route }) => {
-      route('get', { path: '/x', responses: { 200: okResponse } } as never);
+    makeRouter(defineRootRoute('/', []), ({ router, defineRoute }) => {
+      defineRoute('get', { path: '/x', responses: { 200: okResponse } } as never);
 
       return router;
     })();
@@ -213,8 +311,8 @@ describe('createRouter', () => {
 
     const makeRouter = createRouter();
 
-    const thingsRouter = makeRouter(things, ({ router, route }) => {
-      const list = route('get', { responses: { 200: okResponse } });
+    const thingsRouter = makeRouter(things, ({ router, defineRoute }) => {
+      const list = defineRoute('get', { responses: { 200: okResponse } });
       expect(list.path).toBe('/');
       router.openapi(list, (c) => c.json({ ok: true }, 200));
 
@@ -251,8 +349,8 @@ describe('createRouter', () => {
       ],
     });
 
-    const xRouter = makeRouter(x, ({ router, route }) =>
-      router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+    const xRouter = makeRouter(x, ({ router, defineRoute }) =>
+      router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
         c.json({ ok: true }, 200),
       ),
     );
@@ -289,8 +387,8 @@ describe('createRouter', () => {
           await next();
         },
       ],
-    })(ctx, ({ router, route }) => {
-      const r = route('get', {
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', {
         request: {
           query: z.object({
             q: z.string().transform((v) => {
@@ -322,8 +420,8 @@ describe('createRouter', () => {
 
     const router = createRouter({
       routeMiddleware: () => async (c) => c.json({ error: 'forbidden' }, 403),
-    })(ctx, ({ router, route }) => {
-      const r = route('post', {
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('post', {
         request: jsonRequest(z.object({ name: z.string() }), 'Body'),
         responses: { 200: okResponse },
       });
@@ -350,8 +448,8 @@ describe('createRouter', () => {
         async function auditLog(_c, next) {
           await next();
         },
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -366,8 +464,8 @@ describe('createRouter', () => {
 
     const router = createRouter({
       routeMiddleware: () => async (c) => c.json({ blocked: true }, 401),
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -383,8 +481,8 @@ describe('createRouter', () => {
     const child = defineChildRoute<typeof parent>()('/things');
     const makeRouter = createRouter();
 
-    const childRouter = makeRouter(child, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    const childRouter = makeRouter(child, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -402,8 +500,8 @@ describe('createRouter', () => {
     const child = defineChildRoute<typeof parent>()('/things');
     const makeRouter = createRouter();
 
-    const childRouter = makeRouter(child, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    const childRouter = makeRouter(child, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -434,8 +532,8 @@ describe('createRouter', () => {
 
     expect(members.path).toBe('/api/orgs/:orgId/members');
 
-    const membersRouter = makeRouter(members, ({ router, route }) => {
-      const list = route('get', {
+    const membersRouter = makeRouter(members, ({ router, defineRoute }) => {
+      const list = defineRoute('get', {
         responses: {
           200: jsonResponse(z.object({ user: z.string(), orgId: z.string() }), 'OK'),
         },
@@ -476,8 +574,8 @@ describe('createRouter', () => {
 
     expect(things.path).toBe('/api/things');
 
-    const thingsRouter = makeRouter(things, ({ router, route }) => {
-      router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+    const thingsRouter = makeRouter(things, ({ router, defineRoute }) => {
+      router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
         c.json({ ok: true }, 200),
       );
 
@@ -497,8 +595,8 @@ describe('createRouter', () => {
         ran = true;
         await next();
       },
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -524,8 +622,8 @@ describe('createRouter', () => {
     });
 
     let returnedFromRoute: { tags?: readonly string[] } | undefined;
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       returnedFromRoute = r as { tags?: readonly string[] };
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
@@ -553,8 +651,8 @@ describe('createRouter', () => {
       },
     });
 
-    const router = makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    const router = makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -580,8 +678,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse }, tags: ['shared', 'list'] });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse }, tags: ['shared', 'list'] });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -608,8 +706,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: routeResp } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: routeResp } });
       router.openapi(r as never, (c) => c.json({ from: 'route' }) as never);
 
       return router;
@@ -626,9 +724,9 @@ describe('createRouter', () => {
       routeMiddleware: createScopeMiddleware({ resolve: () => [] }),
     });
 
-    const app = makeRouter(ctx, ({ router, route }) => {
-      const open = route('get', { security: [], responses: { 200: okResponse } });
-      const guarded = route('post', { responses: { 200: okResponse } });
+    const app = makeRouter(ctx, ({ router, defineRoute }) => {
+      const open = defineRoute('get', { security: [], responses: { 200: okResponse } });
+      const guarded = defineRoute('post', { responses: { 200: okResponse } });
       router.openapi(open, (c) => c.json({ ok: true }, 200));
       router.openapi(guarded, (c) => c.json({ ok: true }, 200));
 
@@ -662,8 +760,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { tags: [], responses: { 200: okResponse } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { tags: [], responses: { 200: okResponse } });
       router.openapi(r, (c) => c.json({ ok: true }, 200));
 
       return router;
@@ -687,8 +785,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { tags: ['things'], responses: { 200: okResponse } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { tags: ['things'], responses: { 200: okResponse } });
       router.openapi(r, (c) => c.json({ ok: true }, 200));
 
       return router;
@@ -713,8 +811,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -748,8 +846,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse, 422: routeResp } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse, 422: routeResp } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -786,8 +884,8 @@ describe('createRouter', () => {
       },
     });
 
-    makeRouter(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    makeRouter(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -809,8 +907,8 @@ describe('createRouter', () => {
           await next();
         };
       },
-    })(ctx, ({ router, route }) => {
-      const r = route('get', { responses: { 200: okResponse } });
+    })(ctx, ({ router, defineRoute }) => {
+      const r = defineRoute('get', { responses: { 200: okResponse } });
       router.openapi(r as never, (c) => c.json({ ok: true }) as never);
 
       return router;
@@ -818,5 +916,175 @@ describe('createRouter', () => {
 
     await router.request('/api');
     expect(captured).toEqual({ method: 'get', path: '/' });
+  });
+});
+
+describe('mount guard', () => {
+  const makeRouter = createRouter();
+
+  const leaf = (ctx: Parameters<typeof makeRouter>[0]) =>
+    makeRouter(ctx, ({ router, defineRoute }) =>
+      router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+        c.json({ ok: true }, 200),
+      ),
+    );
+
+  it('throws when a value-form child is mounted under a different parent context', () => {
+    const root = defineRootRoute('/api', []);
+
+    const admin = defineChildRoute(root, '/admin').middleware(async (c, next) => {
+      if (!c.req.header('authorization')) return c.json({ error: 'UNAUTHORIZED' }, 401);
+      await next();
+    });
+
+    const publicRoute = defineChildRoute(root, '/public');
+    const secrets = defineChildRoute(admin, '/secrets');
+
+    const secretsRouter = leaf(secrets);
+
+    expect(() => makeRouter(publicRoute, () => {}, [secretsRouter])()).toThrowError(
+      "makeRouter: the child context '/api/admin/secrets' was defined under the context at '/api/admin', but its router is mounted under the context at '/api/public'.",
+    );
+  });
+
+  it('mounts a value-form child under the parent it was defined from', async () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root, '/things');
+
+    const app = makeRouter(root, () => {}, [leaf(things)])();
+
+    expect((await app.request('/api/things')).status).toBe(200);
+  });
+
+  const pass: MiddlewareHandler = async (_c, next) => {
+    await next();
+  };
+
+  it('accepts a child of root under root.middleware(a)', async () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root, '/things');
+
+    const app = makeRouter(root.middleware(pass), () => {}, [leaf(things)])();
+
+    expect((await app.request('/api/things')).status).toBe(200);
+  });
+
+  it('rejects a child of root.middleware(a) under root', () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root.middleware(pass), '/things');
+
+    expect(() => makeRouter(root, () => {}, [leaf(things)])()).toThrowError(
+      "makeRouter: the child context '/api/things' was defined under the context at '/api', but its router is mounted under an ancestor or an unrelated context with the same path '/api' (for example, the context before a .middleware() call, or a different root with the same path). Mount the router of a child under the router of the context that it was defined from, or of a .middleware() descendant of that context.",
+    );
+  });
+
+  it('accepts a child of root.middleware(a) under root.middleware(a).middleware(b)', async () => {
+    const root = defineRootRoute('/api', []);
+    const authed = root.middleware(pass);
+    const things = defineChildRoute(authed, '/things');
+
+    const app = makeRouter(authed.middleware(pass), () => {}, [leaf(things)])();
+
+    expect((await app.request('/api/things')).status).toBe(200);
+  });
+
+  it('rejects a child of root.middleware(a) under root.middleware(c), a sibling branch', () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root.middleware(pass), '/things');
+
+    expect(() => makeRouter(root.middleware(pass), () => {}, [leaf(things)])()).toThrowError(
+      /mounted under an ancestor or an unrelated context with the same path '\/api'/,
+    );
+  });
+
+  it('rejects a child of root under a sibling value-form child of root', () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root, '/things');
+    const other = defineChildRoute(root, '/other');
+
+    expect(() => makeRouter(other, () => {}, [leaf(things)])()).toThrowError(
+      /mounted under the context at '\/api\/other'/,
+    );
+  });
+
+  it('keeps the parent link through .middleware() on the child', async () => {
+    const root = defineRootRoute('/api', []);
+    const other = defineRootRoute('/other', []);
+
+    const things = defineChildRoute(root, '/things').middleware(async (_c, next) => {
+      await next();
+    });
+
+    const app = makeRouter(root, () => {}, [leaf(things)])();
+    expect((await app.request('/api/things')).status).toBe(200);
+
+    expect(() => makeRouter(other, () => {}, [leaf(things)])()).toThrowError(
+      /mounted under the context at '\/other'/,
+    );
+  });
+
+  it('never checks curried children', async () => {
+    const root = defineRootRoute('/api', []);
+    const other = defineRootRoute('/other', []);
+    const things = defineChildRoute<typeof root>()('/things');
+
+    expect(getRouteIdentity(things)?.parentId).toBeUndefined();
+
+    const app = makeRouter(other, () => {}, [leaf(things)])();
+    expect((await app.request('/other/things')).status).toBe(200);
+  });
+
+  it('does not check a thunk called directly', async () => {
+    const root = defineRootRoute('/api', []);
+    const things = defineChildRoute(root, '/things');
+
+    expect((await leaf(things)().request('/things')).status).toBe(200);
+  });
+
+  it('carries the ids and the lineage through extendRouteContext builders and checks extended children', async () => {
+    interface Ctx<P extends string, V extends object> extends RouteContextBase<CtxKind, P, V> {
+      tag: () => ReaugmentContext<CtxKind, P, V>;
+    }
+
+    interface CtxKind extends RouteContextKind {
+      type: Ctx<this['path'] & string, this['vars'] & object>;
+    }
+
+    const ext = extendRouteContext<CtxKind>({ tag: (ctx) => () => ctx.middleware(pass) });
+    const root = ext.defineRootRoute('/api');
+    const other = ext.defineRootRoute('/other');
+    const things = ext.defineChildRoute(root, '/things').tag();
+
+    const derived = things.middleware(async (_c, next) => {
+      await next();
+    });
+
+    const rootId = getRouteIdentity(root)?.id;
+    expect(rootId).toBeTypeOf('symbol');
+    expect(getRouteIdentity(things)).toMatchObject({ parentId: rootId, parentPath: '/api' });
+    expect(getRouteIdentity(derived)?.parentId).toBe(rootId);
+    expect(getRouteIdentity(derived)?.id).not.toBe(getRouteIdentity(things)?.id);
+    // The identity key is a symbol: it does not show in the context's string keys.
+    expect(Object.keys(things)).not.toContain('id');
+
+    const app = makeRouter(root, () => {}, [leaf(things)])();
+    expect((await app.request('/api/things')).status).toBe(200);
+
+    expect(() => makeRouter(other, () => {}, [leaf(things)])()).toThrowError(
+      /mounted under the context at '\/other'/,
+    );
+
+    // Builders and `.middleware()` on an extended context extend the lineage.
+    const tagged = root.tag().middleware(pass);
+    expect(getRouteIdentity(tagged)?.lineage).toContain(rootId);
+    expect(getRouteIdentity(tagged)?.lineage).toHaveLength(3);
+
+    const viaTagged = makeRouter(tagged, () => {}, [leaf(things)])();
+    expect((await viaTagged.request('/api/things')).status).toBe(200);
+
+    const childOfTagged = ext.defineChildRoute(root.tag(), '/tagged');
+    expect(() => makeRouter(root, () => {}, [leaf(childOfTagged)])()).toThrowError(
+      /mounted under an ancestor or an unrelated context with the same path '\/api'/,
+    );
   });
 });

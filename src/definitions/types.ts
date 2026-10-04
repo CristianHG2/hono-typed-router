@@ -41,6 +41,20 @@ export type DefineRootRouteFn = <TPath extends string, TVars extends object = {}
 export type ParentContext = { path: string; vars: object };
 
 /**
+ * The Hono `Env` of a middleware that runs on `TContext` and sets `TNewVars`. Pass it to
+ * `createMiddleware` from `hono/factory` to build a middleware outside the context chain:
+ * `createMiddleware<ContextEnv<typeof ctx, { session: Session }>>(...)`. The middleware then
+ * reads the vars of the context and sets the new vars, all typed.
+ *
+ * Hono's `Context` must match the `Variables` exactly, so the middleware fits contexts
+ * whose vars equal `TContext['vars']`. On a context without vars, a plain
+ * `createMiddleware<{ Variables: TNewVars }>` also fits.
+ */
+export type ContextEnv<TContext extends ParentContext, TNewVars extends object = {}> = {
+  Variables: TContext['vars'] & TNewVars;
+};
+
+/**
  * A child's full path: the parent's path joined with the child's own segment by one `/`.
  * A parent path that ends in `/` (the root `'/'`) drops that slash when the segment starts
  * with one, so `'/'` + `'/things'` is `'/things'`, not `'//things'`. A segment without a
@@ -64,6 +78,19 @@ export type ChildRouteFn<TParentContext extends ParentContext> = <TPath extends 
   path: TPath,
 ) => RouteContext<ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
 
+/**
+ * Internal: resolves to `TFn` for any `TParentContext`, but stays a deferred conditional type
+ * in a generic signature. The curried `defineChildRoute` overload returns its function through
+ * this wrapper so that the signature is not a "generic function returning a function" to
+ * TypeScript. When an overload set has such a signature, TypeScript skips a call to it
+ * nested inline in another generic call during that call's first inference pass, so the
+ * outer type parameter falls back to its constraint (`string`). That breaks
+ * `bind(defineChildRoute(parent, '/x'), 'param')`. Do not inline it into a plain function type.
+ */
+export type DeferredChildRouteFn<TParentContext, TFn> = [TParentContext] extends [unknown]
+  ? TFn
+  : never;
+
 export interface DefineChildRouteFn {
   /**
    * Value form: infers the parent's path and vars from the `parent` value. The child's
@@ -81,5 +108,8 @@ export interface DefineChildRouteFn {
    * runtime import of the parent (safe in a circular import). The child's runtime
    * `path` is its own segment.
    */
-  <TParentContext extends ParentContext>(): ChildRouteFn<TParentContext>;
+  <TParentContext extends ParentContext>(): DeferredChildRouteFn<
+    TParentContext,
+    ChildRouteFn<TParentContext>
+  >;
 }

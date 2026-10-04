@@ -9,11 +9,11 @@ import type { RouteHookMeta } from './types';
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
-// `route(method, config)` returns a value whose `method` and `path` are literal
+// `defineRoute(method, config)` returns a value whose `method` and `path` are literal
 {
   const ctx = defineRootRoute('/api', []);
-  createRouter()(ctx, ({ route }) => {
-    const declared = route('post', { responses: { 200: okResponse } });
+  createRouter()(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('post', { responses: { 200: okResponse } });
 
     expectTypeOf(declared.method).toEqualTypeOf<'post'>();
     expectTypeOf(declared.path).toEqualTypeOf<'/api'>();
@@ -21,6 +21,27 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
     return undefined;
   });
+}
+
+// The deprecated `route` key holds the same function type as `defineRoute`, and the 1.0
+// destructuring `({ router, route })` still compiles and declares routes.
+{
+  const ctx = defineRootRoute('/api', []);
+  createRouter({ routeDefaults: { tags: ['api'] } })(ctx, (options) => {
+    expectTypeOf(options).toHaveProperty('defineRoute');
+    expectTypeOf(options).toHaveProperty('route');
+    expectTypeOf(options.route).toEqualTypeOf(options.defineRoute);
+
+    return undefined;
+  });
+
+  const app = createRouter()(ctx, ({ router, route }) =>
+    router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+      c.json({ ok: true }, 200),
+    ),
+  )();
+
+  expectTypeOf(app).toExtend<OpenAPIHono<any, { '/api': any }, any>>();
 }
 
 // `makeRouter` result is a thunk producing the factory's return value
@@ -31,6 +52,19 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(builder).toBeFunction();
   const built = builder();
   expectTypeOf(built).not.toBeAny();
+}
+
+// The parent's mount argument is internal: every thunk's public type takes no parameters,
+// with or without children, and a thunk is still accepted as a child.
+{
+  const ctx = defineRootRoute('/api', []);
+  const makeRouter = createRouter();
+  const child = makeRouter(defineChildRoute<typeof ctx>()('/things'), ({ router }) => router);
+  const parent = makeRouter(ctx, () => {}, [child]);
+
+  expectTypeOf(child).parameters.toEqualTypeOf<[]>();
+  expectTypeOf(parent).parameters.toEqualTypeOf<[]>();
+  expectTypeOf(child).toMatchTypeOf<() => OpenAPIHono<any, any, any>>();
 }
 
 // A factory that returns nothing yields the router itself from the thunk
@@ -90,9 +124,11 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // The destructured options stay typed under the children overload.
   makeRouter(
     ctx,
-    ({ router, route }) => {
+    ({ router, defineRoute }) => {
       expectTypeOf(router).toEqualTypeOf<Router>();
-      expectTypeOf(route('get', { responses: { 200: okResponse } }).path).toEqualTypeOf<'/api'>();
+      expectTypeOf(
+        defineRoute('get', { responses: { 200: okResponse } }).path,
+      ).toEqualTypeOf<'/api'>();
 
       return router;
     },
@@ -108,13 +144,13 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   }>();
 }
 
-// `routeDefaults` merges into the static return type of `route()`
+// `routeDefaults` merges into the static return type of `defineRoute()`
 {
   const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { responses: { 401: errResponse } } })(ctx, ({ route }) => {
-    const declared = route('get', { responses: { 200: okResponse } });
+  createRouter({ routeDefaults: { responses: { 401: errResponse } } })(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('get', { responses: { 200: okResponse } });
 
     // Both the per-route 200 and the base 401 must be visible on the merged type.
     expectTypeOf(declared.responses).toMatchTypeOf<{
@@ -139,8 +175,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { responses: { 422: baseResp } } })(ctx, ({ route }) => {
-    const declared = route('get', { responses: { 200: okResponse, 422: routeResp } });
+  createRouter({ routeDefaults: { responses: { 422: baseResp } } })(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('get', { responses: { 200: okResponse, 422: routeResp } });
 
     type MergedSchema =
       (typeof declared)['responses'][422]['content']['application/json']['schema'];
@@ -153,14 +189,14 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// `transformRoute` does not influence the static return type of `route()`
+// `transformRoute` does not influence the static return type of `defineRoute()`
 {
   const ctx = defineRootRoute('/api', []);
 
   createRouter({
     transformRoute: (r) => ({ ...r, tags: ['x'] }),
-  })(ctx, ({ route }) => {
-    const declared = route('post', { responses: { 200: okResponse } });
+  })(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('post', { responses: { 200: okResponse } });
 
     expectTypeOf(declared.method).toEqualTypeOf<'post'>();
     expectTypeOf(declared.responses).toMatchTypeOf<{ 200: typeof okResponse }>();
@@ -177,38 +213,44 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { responses: { 401: errResponse } } })(ctx, ({ router, route }) => {
-    const declared = route('get', { responses: { 200: okResponse } });
+  createRouter({ routeDefaults: { responses: { 401: errResponse } } })(
+    ctx,
+    ({ router, defineRoute }) => {
+      const declared = defineRoute('get', { responses: { 200: okResponse } });
 
-    expectTypeOf(declared.responses[200]).toEqualTypeOf<typeof okResponse>();
-    expectTypeOf(declared.responses[401]).toEqualTypeOf<typeof errResponse>();
-    expectTypeOf<keyof typeof declared.responses>().toEqualTypeOf<200 | 401>();
+      expectTypeOf(declared.responses[200]).toEqualTypeOf<typeof okResponse>();
+      expectTypeOf(declared.responses[401]).toEqualTypeOf<typeof errResponse>();
+      expectTypeOf<keyof typeof declared.responses>().toEqualTypeOf<200 | 401>();
 
-    router.openapi(declared, (c) => c.json({ ok: true }, 200));
-    router.openapi(declared, (c) => c.json({ error: 'nope' }, 401));
+      router.openapi(declared, (c) => c.json({ ok: true }, 200));
+      router.openapi(declared, (c) => c.json({ error: 'nope' }, 401));
 
-    return router;
-  });
+      return router;
+    },
+  );
 }
 
 // Same status: a base schema and a description-only route entry keep the base schema
 {
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { responses: { 200: okResponse } } })(ctx, ({ router, route }) => {
-    const declared = route('get', { responses: { 200: { description: 'Overridden' } } });
+  createRouter({ routeDefaults: { responses: { 200: okResponse } } })(
+    ctx,
+    ({ router, defineRoute }) => {
+      const declared = defineRoute('get', { responses: { 200: { description: 'Overridden' } } });
 
-    type Merged = (typeof declared)['responses'][200];
+      type Merged = (typeof declared)['responses'][200];
 
-    expectTypeOf<Merged['content']>().toEqualTypeOf<(typeof okResponse)['content']>();
-    expectTypeOf<Merged['description']>().toEqualTypeOf<string>();
+      expectTypeOf<Merged['content']>().toEqualTypeOf<(typeof okResponse)['content']>();
+      expectTypeOf<Merged['description']>().toEqualTypeOf<string>();
 
-    router.openapi(declared, (c) => c.json({ ok: true }, 200));
-    // @ts-expect-error — the base schema still applies to the merged 200
-    router.openapi(declared, (c) => c.json({ ok: 'no' }, 200));
+      router.openapi(declared, (c) => c.json({ ok: true }, 200));
+      // @ts-expect-error — the base schema still applies to the merged 200
+      router.openapi(declared, (c) => c.json({ ok: 'no' }, 200));
 
-    return router;
-  });
+      return router;
+    },
+  );
 }
 
 // `routeDefaults.request.params` + route `request.query`: both validation targets stay typed
@@ -217,8 +259,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   createRouter({ routeDefaults: { request: { params: z.object({ id: z.string() }) } } })(
     ctx,
-    ({ router, route }) => {
-      const declared = route('get', {
+    ({ router, defineRoute }) => {
+      const declared = defineRoute('get', {
         request: { query: z.object({ q: z.string() }) },
         responses: { 200: okResponse },
       });
@@ -239,8 +281,11 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 {
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { tags: ['api'] } })(ctx, ({ route }) => {
-    const declared = route('get', { tags: ['api', 'things'], responses: { 200: okResponse } });
+  createRouter({ routeDefaults: { tags: ['api'] } })(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('get', {
+      tags: ['api', 'things'],
+      responses: { 200: okResponse },
+    });
 
     expectTypeOf(declared.tags).toEqualTypeOf<string[]>();
     // @ts-expect-error — no tuple length is promised
@@ -254,8 +299,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 {
   const ctx = defineRootRoute('/api', []);
 
-  createRouter({ routeDefaults: { summary: 'From base' } })(ctx, ({ route }) => {
-    const declared = route('get', { summary: undefined, responses: { 200: okResponse } });
+  createRouter({ routeDefaults: { summary: 'From base' } })(ctx, ({ defineRoute }) => {
+    const declared = defineRoute('get', { summary: undefined, responses: { 200: okResponse } });
 
     expectTypeOf(declared.summary).toEqualTypeOf<'From base' | undefined>();
 
@@ -269,9 +314,9 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   createRouter({ routeDefaults: { security: [{ bearer: ['things:read'] }], tags: ['api'] } })(
     ctx,
-    ({ router, route }) => {
-      const open = route('get', { security: [], responses: { 200: okResponse } });
-      const tagged = route('get', { tags: [], responses: { 200: okResponse } });
+    ({ router, defineRoute }) => {
+      const open = defineRoute('get', { security: [], responses: { 200: okResponse } });
+      const tagged = defineRoute('get', { tags: [], responses: { 200: okResponse } });
 
       expectTypeOf(open.security).toEqualTypeOf<[]>();
       expectTypeOf(tagged.tags).toEqualTypeOf<'api'[]>();
@@ -290,10 +335,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   createRouter({ routeDefaults: { responses: { 401: errResponse }, tags: ['api'] } })(
     ctx,
-    ({ route: withDefaults }) => {
+    ({ defineRoute: withDefaults }) => {
       createRouter({ base: { responses: { 401: errResponse }, tags: ['api'] } })(
         ctx,
-        ({ route: withBase }) => {
+        ({ defineRoute: withBase }) => {
           const a = withDefaults('get', { tags: ['x'], responses: { 200: okResponse } });
           const b = withBase('get', { tags: ['x'], responses: { 200: okResponse } });
 
@@ -346,15 +391,15 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   const makeRouter = createRouter();
 
-  const notes = makeRouter(notesRoute, ({ router, route }) =>
-    router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+  const notes = makeRouter(notesRoute, ({ router, defineRoute }) =>
+    router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ ok: true }, 200),
     ),
   );
 
-  const things = makeRouter(thingsRoute, ({ router, route }) =>
+  const things = makeRouter(thingsRoute, ({ router, defineRoute }) =>
     router.openapi(
-      route('post', {
+      defineRoute('post', {
         request: jsonRequest(z.object({ name: z.string() }), 'New thing'),
         responses: { 200: jsonResponse(thing, 'Created') },
       }),
@@ -364,9 +409,9 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   const thingById = makeRouter(
     thingRoute,
-    ({ router, route }) =>
+    ({ router, defineRoute }) =>
       router.openapi(
-        route('get', {
+        defineRoute('get', {
           request: { params: z.object({ id: z.string() }) },
           responses: { 200: jsonResponse(thing, 'Found'), 404: jsonResponse(notFound, 'Missing') },
         }),
@@ -418,8 +463,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // The parent's own routes and the children's routes are merged.
   const withOwn = makeRouter(
     root,
-    ({ router, route }) =>
-      router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+    ({ router, defineRoute }) =>
+      router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
         c.json({ ok: true }, 200),
       ),
     [things],
@@ -433,9 +478,9 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // A curried child (`defineChildRoute<typeof parent>()`) is typed at its full path too.
   const curried = makeRouter(
     defineChildRoute<typeof root>()('/curried/:slug'),
-    ({ router, route }) =>
+    ({ router, defineRoute }) =>
       router.openapi(
-        route('get', {
+        defineRoute('get', {
           request: { params: z.object({ slug: z.string() }) },
           responses: { 200: okResponse },
         }),
@@ -459,8 +504,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const root = defineRootRoute('/', []);
   const makeRouter = createRouter();
 
-  const things = makeRouter(defineChildRoute(root, '/things'), ({ router, route }) =>
-    router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+  const things = makeRouter(defineChildRoute(root, '/things'), ({ router, defineRoute }) =>
+    router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ ok: true }, 200),
     ),
   );
@@ -478,8 +523,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const root = defineRootRoute('/api', []);
   const makeRouter = createRouter();
 
-  const x = makeRouter(defineChildRoute(root, 'x'), ({ router, route }) =>
-    router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
+  const x = makeRouter(defineChildRoute(root, 'x'), ({ router, defineRoute }) =>
+    router.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ ok: true }, 200),
     ),
   );

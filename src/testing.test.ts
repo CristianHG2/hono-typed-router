@@ -47,9 +47,9 @@ const buildApp = () => {
     routeDefaults: { responses: { 403: jsonResponse(Forbidden, 'Forbidden') } },
   });
 
-  const notes = makeRouter(notesRoute, ({ router, route }) =>
+  const notes = makeRouter(notesRoute, ({ router, defineRoute }) =>
     router.openapi(
-      route('get', {
+      defineRoute('get', {
         request: { params: z.object({ id: z.string() }) },
         responses: { 200: jsonResponse(z.array(z.string()), 'Notes') },
       }),
@@ -59,9 +59,9 @@ const buildApp = () => {
 
   const thing = makeRouter(
     thingRoute,
-    ({ router, route }) =>
+    ({ router, defineRoute }) =>
       router.openapi(
-        route('get', {
+        defineRoute('get', {
           request: { params: z.object({ id: z.string() }) },
           responses: { 200: jsonResponse(Thing, 'Found'), 404: jsonResponse(Message, 'Missing') },
         }),
@@ -81,9 +81,9 @@ const buildApp = () => {
 
   const things = makeRouter(
     thingsRoute,
-    ({ router, route }) =>
+    ({ router, defineRoute }) =>
       router.openapi(
-        route('post', {
+        defineRoute('post', {
           request: jsonRequest(z.object({ name: z.string() }), 'New thing'),
           responses: { 200: jsonResponse(Thing, 'Created') },
           security: [{ bearer: ['things:write'] }],

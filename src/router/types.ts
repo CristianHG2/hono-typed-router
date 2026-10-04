@@ -88,12 +88,16 @@ export type MakeRouteFn<TPath extends string, TBase extends BaseRouteConfig = {}
 /** Declaration-time metadata passed to `routeMiddleware` factories and `transformRoute`. */
 export interface RouteHookMeta {
   /**
-   * The route's path: the context's runtime `path` joined with the route's relative path
-   * (`'/'` gives the context path itself), in Hono `:param` syntax. It is computed before
-   * `transformRoute` runs and is not changed by it. A value-form `defineChildRoute(parent,
-   * segment)` context carries its full path, so this is the full URL path; a curried
-   * child's runtime path is only its own segment, so this starts at that segment. A root
-   * defined as `''` gives `'/'`.
+   * The route's full URL path: the router's mount path joined with the route's relative
+   * path (`'/'` gives the mount path itself), in Hono `:param` syntax. It is computed before
+   * `transformRoute` runs and is not changed by it. A router mounted as a child (in
+   * `makeRouter(context, factory, children)`) gets its parent's full path joined with its
+   * own segment, so a mounted router always gets the full path, for value-form and curried
+   * `defineChildRoute` contexts alike. A thunk called directly uses its context's runtime
+   * `path`: the full path for a root, and for a value-form child only when every ancestor
+   * is a root or a value-form child. A value-form child with a curried ancestor gets a
+   * partial path from that ancestor's segment; a curried child gets only its segment. A
+   * root defined as `''` gives `'/'`.
    */
   readonly path: string;
 }
@@ -117,7 +121,7 @@ export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
    * Partial `RouteConfig` deep-merged into every route declared via this router.
    * Per-route values win on key conflicts; arrays are concatenated and deduplicated
    * structurally. Useful for shared `responses`, `security`, `tags`, etc. The merged
-   * shape is reflected in the type returned by `route()`.
+   * shape is reflected in the type returned by `defineRoute()`.
    */
   routeDefaults?: TBase;
   /**
@@ -128,8 +132,8 @@ export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
   /**
    * Runtime-only transformer applied to the resolved `RouteConfig` immediately after
    * `createRoute()` (and after the `routeDefaults` merge), before `routeMiddleware` factories
-   * receive it and before it is returned from `route()`. The static return type of
-   * `route()` is not affected by this hook. `meta.path` is computed before this hook runs.
+   * receive it and before it is returned from `defineRoute()`. The static return type of
+   * `defineRoute()` is not affected by this hook. `meta.path` is computed before this hook runs.
    */
   transformRoute?: (config: RouteConfig, meta: RouteHookMeta) => RouteConfig;
 }
@@ -141,6 +145,9 @@ type RouterFactory<
   TResult,
 > = (options: {
   router: OpenAPIHono<{ Variables: TVars }>;
+  /** Declares a route at the path of the context. Pass the result to `router.openapi()`. */
+  defineRoute: MakeRouteFn<TPath, TBase>;
+  /** @deprecated Use defineRoute. Removed in 2.0. */
   route: MakeRouteFn<TPath, TBase>;
 }) => TResult;
 

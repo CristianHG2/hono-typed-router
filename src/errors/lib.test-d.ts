@@ -134,8 +134,8 @@ const notFound = jsonResponse(z.object({ message: z.string() }), 'Not Found');
 const ctx = defineRootRoute('/api', []);
 
 // Inside `router.openapi`: declared statuses type-check, an undeclared one does not.
-createRouter()(ctx, ({ router, route }) => {
-  const declared = route('post', { responses: { 200: ok, 404: notFound } });
+createRouter()(ctx, ({ router, defineRoute }) => {
+  const declared = defineRoute('post', { responses: { 200: ok, 404: notFound } });
 
   router.openapi(declared, (c) =>
     handle(

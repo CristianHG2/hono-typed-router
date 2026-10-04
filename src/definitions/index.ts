@@ -1,6 +1,12 @@
 export { defineRootRoute, defineChildRoute } from './lib';
 
-export type { RouteContext, MiddlewareFactory, ChildRouteFn, NoRedeclare } from './types';
+export type {
+  RouteContext,
+  MiddlewareFactory,
+  ChildRouteFn,
+  NoRedeclare,
+  ContextEnv,
+} from './types';
 
 export { extendRouteContext } from './extend';
 

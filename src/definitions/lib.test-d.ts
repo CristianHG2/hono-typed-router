@@ -1,8 +1,10 @@
 import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
+import { createMiddleware } from 'hono/factory';
+import type { ParamKeys } from 'hono/types';
 import { createRouter } from '../router';
 import { defineChildRoute, defineRootRoute } from './lib';
-import type { RouteContext } from './types';
+import type { ChildRouteFn, ContextEnv, RouteContext } from './types';
 
 // Root context preserves the literal path type
 {
@@ -190,4 +192,110 @@ import type { RouteContext } from './types';
   expectTypeOf(defineChildRoute(defineChildRoute(api, 'x'), 'y').path).toEqualTypeOf<'/api/x/y'>();
   expectTypeOf(defineChildRoute(defineRootRoute('', []), 'x').path).toEqualTypeOf<'/x'>();
   expectTypeOf(defineChildRoute(api, '').path).toEqualTypeOf<'/api'>();
+}
+
+// Value form nested inline as an argument of another generic call infers the full path,
+// so a path-param-typed helper accepts the param name (as with a variable or the curried form).
+{
+  const bind = <P extends string>(ctx: RouteContext<P, {}>, param: NoInfer<ParamKeys<P>>) =>
+    ctx.middleware<{ org: { id: string } }>(async (c, next) => {
+      c.set('org', { id: c.req.param(param) ?? '' });
+      await next();
+    });
+
+  const root = defineRootRoute('/api', []);
+
+  const inline = bind(defineChildRoute(root, '/orgs/:orgId'), 'orgId');
+  expectTypeOf(inline.path).toEqualTypeOf<'/api/orgs/:orgId'>();
+  expectTypeOf(inline.vars).toEqualTypeOf<{ org: { id: string } }>();
+  expectTypeOf(inline.middleware).toBeFunction();
+
+  // Grandchild nested inline, and a `'/'` root.
+  const deep = bind(defineChildRoute(defineChildRoute(root, '/orgs/:orgId'), '/teams'), 'orgId');
+  expectTypeOf(deep.path).toEqualTypeOf<'/api/orgs/:orgId/teams'>();
+  const slash = bind(defineChildRoute(defineRootRoute('/', []), '/orgs/:orgId'), 'orgId');
+  expectTypeOf(slash.path).toEqualTypeOf<'/orgs/:orgId'>();
+
+  // @ts-expect-error — 'nope' is not a param of '/api/orgs/:orgId'
+  bind(defineChildRoute(root, '/orgs/:orgId'), 'nope');
+
+  // The variable and curried forms keep working.
+  const ctx = defineChildRoute(root, '/orgs/:orgId');
+  expectTypeOf(bind(ctx, 'orgId').path).toEqualTypeOf<'/api/orgs/:orgId'>();
+  expectTypeOf(
+    bind(defineChildRoute<typeof root>()('/orgs/:orgId'), 'orgId').path,
+  ).toEqualTypeOf<'/api/orgs/:orgId'>();
+
+  // The curried overload still resolves to the public `ChildRouteFn` type.
+  expectTypeOf(defineChildRoute<typeof root>()).toEqualTypeOf<ChildRouteFn<typeof root>>();
+}
+
+// `createMiddleware` from `hono/factory` passes to `.middleware()`. On a context without
+// vars, an Env with only the new vars fits, and one middleware is reused on two contexts.
+{
+  type Session = { userId: string };
+
+  const loadSession = createMiddleware<{ Variables: { session: Session } }>(async (c, next) => {
+    c.set('session', { userId: 'u1' });
+    await next();
+  });
+
+  const api = defineRootRoute('/api', []).middleware<{ session: Session }>(loadSession);
+  const admin = defineRootRoute('/admin/:org', []).middleware(loadSession);
+
+  expectTypeOf(api.vars).toEqualTypeOf<{ session: Session }>();
+  expectTypeOf(admin.vars).toEqualTypeOf<{ session: Session }>();
+}
+
+// On a context that already has vars, the Env must hold them too (Hono's `Context` matches
+// `Variables` exactly). `ContextEnv<typeof ctx, NewVars>` builds that Env.
+{
+  type Session = { userId: string };
+
+  const withRequestId = defineRootRoute('/api', []).middleware<{ requestId: string }>(
+    async (c, next) => {
+      c.set('requestId', 'r1');
+      await next();
+    },
+  );
+
+  expectTypeOf<ContextEnv<typeof withRequestId, { session: Session }>>().toEqualTypeOf<{
+    Variables: { requestId: string } & { session: Session };
+  }>();
+
+  const loadSession = createMiddleware<ContextEnv<typeof withRequestId, { session: Session }>>(
+    async (c, next) => {
+      expectTypeOf(c.var.requestId).toEqualTypeOf<string>();
+      c.set('session', { userId: c.var.requestId });
+      await next();
+    },
+  );
+
+  const authed = withRequestId.middleware<{ session: Session }>(loadSession);
+  expectTypeOf<keyof typeof authed.vars>().toEqualTypeOf<'requestId' | 'session'>();
+
+  // A child has the same vars as its parent, so the same middleware fits it.
+  const child = defineChildRoute(withRequestId, '/things/:id').middleware(loadSession);
+  expectTypeOf<keyof typeof child.vars>().toEqualTypeOf<'requestId' | 'session'>();
+
+  // An Env with only the new vars does not fit a context that has other vars.
+  const onlySession = createMiddleware<{ Variables: { session: Session } }>(async (_c, next) => {
+    await next();
+  });
+
+  // @ts-expect-error the Env lacks `requestId`, so `Context['set']` is not compatible
+  withRequestId.middleware<{ session: Session }>(onlySession);
+}
+
+// Untyped `createMiddleware` results in `defineRootRoute(path, [a, b])` keep `vars` as `{}`
+{
+  const a = createMiddleware(async (_c, next) => {
+    await next();
+  });
+
+  const b = createMiddleware(async (_c, next) => {
+    await next();
+  });
+
+  expectTypeOf(defineRootRoute('/api', [a, b]).vars).toEqualTypeOf<{}>();
 }

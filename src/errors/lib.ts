@@ -172,8 +172,10 @@ const TAG_KEY = '_tag';
  * each class's {@link ErrorTag}. The result is an arm tuple: pass it to `handle(c, fn, ...)`
  * or `handleErrors`, or spread it next to `onError` arms.
  *
- * A thrown error goes to the first class in `errors` it is `instanceof`; the handler is
- * picked by the error's runtime tag (`_tag` if `handlers` has that key, else `name`).
+ * An error that is `instanceof` any class in `errors` is handled by the handler keyed by
+ * its runtime tag (`_tag` if `handlers` has that key, else `name`); the order of `errors`
+ * does not matter. Do not reuse a tag across unrelated classes: a subclass that declares
+ * another listed class's `_tag` goes to that class's handler.
  * A handler that returns `rethrow()` passes the error to the next arm after this tuple.
  *
  * ```ts
@@ -212,8 +214,9 @@ export const matchErrors = <
 
   const arms = ctors.map((ctor, index) =>
     onError(ctor, (err, c) => {
-      // Only the first listed class the error matches handles it, so a rethrow from its
-      // handler falls past the rest of this tuple instead of re-running the same handler.
+      // Only one arm of the tuple runs (the first listed class the error matches), so a
+      // rethrow falls past the rest of this tuple instead of re-running the same handler.
+      // The handler is picked by the error's tag, not by this arm's index.
       if (ctors.findIndex((candidate) => err instanceof candidate) !== index) {
         return RETHROW;
       }

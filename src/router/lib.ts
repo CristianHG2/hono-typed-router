@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
 import type { RouteContext } from '../definitions';
+import { getRouteIdentity, joinChildPath } from '../definitions/lib';
 import type {
   BaseRouteConfig,
   CreateRouterOptions,
@@ -10,6 +11,35 @@ import type {
 } from './types';
 
 type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
+
+/** Internal argument a parent thunk passes to each child thunk it mounts. */
+type RouterMount = {
+  /** The parent's full mount path: where the parent router itself is served. */
+  readonly basePath: string;
+  /** The lineage of the parent's context, to detect a value-form child mounted elsewhere. */
+  readonly lineage?: readonly symbol[];
+};
+
+/**
+ * Throws when a value-form child is mounted under a context that is not the one it was
+ * defined from or a `.middleware()` descendant of it. Under an ancestor or an unrelated
+ * context, its routes would run without some of the middlewares that its type assumes.
+ * Curried children have no recorded parent, so they are not checked.
+ */
+const assertMountedUnderParent = (context: RouteContext<string, object>, mount: RouterMount) => {
+  const identity = getRouteIdentity(context);
+
+  if (identity?.parentId === undefined || mount.lineage?.includes(identity.parentId)) return;
+
+  const mountedUnder =
+    mount.basePath === identity.parentPath
+      ? `an ancestor or an unrelated context with the same path '${mount.basePath}' (for example, the context before a .middleware() call, or a different root with the same path)`
+      : `the context at '${mount.basePath}'`;
+
+  throw new Error(
+    `makeRouter: the child context '${context.path}' was defined under the context at '${identity.parentPath}', but its router is mounted under ${mountedUnder}. Mount the router of a child under the router of the context that it was defined from, or of a .middleware() descendant of that context.`,
+  );
+};
 
 /**
  * Builds a `makeRouter` function. Every router built from it shares the same
@@ -56,19 +86,31 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
   // router) and mounts children, which is exactly what the generic signature describes.
   return ((
     context: RouteContext<string, object>,
-    factory: (options: { router: OpenAPIHono; route: unknown }) => unknown,
-    children?: (() => OpenAPIHono<any, any, any>)[],
+    factory: (options: { router: OpenAPIHono; defineRoute: unknown; route: unknown }) => unknown,
+    children?: ((mount?: RouterMount) => OpenAPIHono<any, any, any>)[],
   ) => {
-    return () => {
+    // `mount` is internal: a parent passes it when it mounts this thunk as a child. The
+    // public `RouterThunk` types stay `() => ...`.
+    return (mount?: RouterMount) => {
+      if (mount) assertMountedUnderParent(context, mount);
+
       // A value-form child's `path` is the full path; mounting under the parent adds the
       // parent's part, so the router's own base path is the relative `segment`.
-      const router = new OpenAPIHono().basePath(context.segment ?? context.path);
+      const segment = context.segment ?? context.path;
+      const router = new OpenAPIHono().basePath(segment);
+
+      // Mounted, the child serves at the parent's full path joined with its segment, in
+      // every context form (a curried child's runtime `path` is only its segment). Called
+      // directly, only the context's own `path` is known: the full path for a root, and for
+      // a value-form child only when no ancestor is curried (a curried ancestor contributes
+      // only its segment); the segment for a curried child.
+      const fullPath = mount ? joinChildPath(mount.basePath, segment) : context.path;
 
       if (context.middlewares.length > 0) {
         router.use(...context.middlewares);
       }
 
-      const route = (method: RouteConfig['method'], config: Record<string, unknown>) => {
+      const defineRoute = (method: RouteConfig['method'], config: Record<string, unknown>) => {
         const incoming = {
           method,
           path: '/',
@@ -77,10 +119,10 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
 
         const merged = base ? deepMerge(base, incoming) : incoming;
 
-        // SAFETY: `merged` is `method` + `path` + a route config typed by `route()`'s callers (plus
+        // SAFETY: `merged` is `method` + `path` + a route config typed by `defineRoute()`'s callers (plus
         // the typed `routeDefaults`); `createRoute` returns a copy plus `getRoutingPath`: a `RouteConfig`.
         let declared = createRoute(merged as AnyRouteConfigInput) as RouteConfig;
-        const meta: RouteHookMeta = { path: toHonoPath(joinPath(context.path, declared.path)) };
+        const meta: RouteHookMeta = { path: toHonoPath(joinPath(fullPath, declared.path)) };
 
         if (transformRoute) {
           declared = transformRoute(declared, meta);
@@ -105,7 +147,8 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         return declared;
       };
 
-      const result = factory({ router, route });
+      // `route` is the deprecated name of `defineRoute`: the same function.
+      const result = factory({ router, defineRoute, route: defineRoute });
 
       // A factory that forgets `return router` still gets its children mounted.
       // SAFETY: `MakeRouterFn` types the factory to return an `OpenAPIHono` or nothing.
@@ -113,7 +156,10 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
 
       if (children) {
         for (const child of children) {
-          app.route('/', child());
+          app.route(
+            '/',
+            child({ basePath: fullPath, lineage: getRouteIdentity(context)?.lineage }),
+          );
         }
       }
 

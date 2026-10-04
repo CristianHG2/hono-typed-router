@@ -239,7 +239,7 @@ describe('matchErrors', () => {
     expect(result).toEqual({ body: { message: 'tag' }, status: 400 });
   });
 
-  it('dispatches by declaration order: a subclass listed first wins', async () => {
+  it('picks the handler by the runtime tag when a subclass is listed before its parent', async () => {
     const c = makeContext();
 
     const declined = vi.fn((_e: CardDeclined, ec: Context) =>

@@ -183,3 +183,31 @@ const { defineRootRoute, defineChildRoute } = extendRouteContext<TestContextKind
   expectTypeOf(defineChildRoute<typeof api>()('x').path).toEqualTypeOf<'/api/x'>();
   expectTypeOf(defineChildRoute(defineRootRoute('', []), 'x').path).toEqualTypeOf<'/x'>();
 }
+
+// Value form nested inline as an argument of another generic call infers the full path
+// on an extended context too.
+{
+  const bind = <P extends string>(ctx: TestContext<P, {}>, param: NoInfer<ParamKeys<P>>) =>
+    ctx.bindValue('org', param, (id) => ({ id }));
+
+  const root = defineRootRoute('/api', []);
+
+  const inline = bind(defineChildRoute(root, '/orgs/:orgId'), 'orgId');
+  expectTypeOf(inline.path).toEqualTypeOf<'/api/orgs/:orgId'>();
+  expectTypeOf(inline.vars).toMatchTypeOf<{ org: { id: string } }>();
+  expectTypeOf(inline.bindValue).toBeFunction();
+
+  const deep = bind(defineChildRoute(defineChildRoute(root, '/orgs/:orgId'), '/teams'), 'orgId');
+  expectTypeOf(deep.path).toEqualTypeOf<'/api/orgs/:orgId/teams'>();
+
+  // @ts-expect-error — 'nope' is not a param of '/api/orgs/:orgId'
+  bind(defineChildRoute(root, '/orgs/:orgId'), 'nope');
+
+  // The curried form keeps working inline and still returns a callable child builder.
+  expectTypeOf(
+    bind(defineChildRoute<typeof root>()('/orgs/:orgId'), 'orgId').path,
+  ).toEqualTypeOf<'/api/orgs/:orgId'>();
+  const childOf = defineChildRoute<typeof root>();
+  expectTypeOf(childOf('/x').path).toEqualTypeOf<'/api/x'>();
+  expectTypeOf(childOf('/x').bindValue).toBeFunction();
+}

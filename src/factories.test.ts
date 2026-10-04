@@ -16,8 +16,8 @@ import { createRouter } from './router';
 const Body = z.object({ name: z.string() });
 
 const buildApp = () =>
-  createRouter()(defineRootRoute('/api', []), ({ router, route }) => {
-    const r = route('post', {
+  createRouter()(defineRootRoute('/api', []), ({ router, defineRoute }) => {
+    const r = defineRoute('post', {
       request: jsonRequest(Body, 'Create'),
       responses: { 200: jsonResponse(z.object({ got: z.unknown() }), 'OK') },
     });

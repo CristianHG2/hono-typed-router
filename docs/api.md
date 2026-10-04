@@ -38,9 +38,8 @@ function defineChildRoute<TParentContext extends { path: string; vars: object }>
 
 Creates a child `RouteContext` whose path type is the parent's path joined with `path` by `/`, and whose vars are the parent's. The join adds no second slash after a parent that ends in `/` (`'/'` + `'/things'` is `/things`) and inserts one when `path` has no leading `/` (`'/api'` + `'things'` is `/api/things`). Any `{ path; vars }` shape is accepted as the parent, including extended contexts. Neither form copies the parent's middlewares: mounting the child's router under the parent's router runs them.
 
-- **Value form.** Infers the parent's path and vars from the `parent` value. The child's runtime `path` is `parent.path` joined with `path` by `/` (the full path when every ancestor is a root or a value-form child; a curried ancestor contributes only its segment); the relative part is kept in `segment` for mounting.
-- **Curried form.** Takes the parent as a type only, so the child's module needs only an `import type` of the parent. Use it when the parent's module imports the child's router (a circular import), where the value form would read an uninitialized parent. The child's runtime `path` is only `path` (its type is still the full path). Not deprecated.
-- **Known limitation.** A value-form call nested inline as an argument of another generic function that takes `RouteContext<P, …>` infers `P` as `string`, so `ParamKeys<P>` is `never` (for example `'orgId' is not assignable to parameter of type 'never'`). Assign the child context to a variable first, or use the curried form inline.
+- **Value form.** Infers the parent's path and vars from the `parent` value. The child's runtime `path` is `parent.path` joined with `path` by `/` (the full path when every ancestor is a root or a value-form child; a curried ancestor contributes only its segment); the relative part is kept in `segment` for mounting. The child also records which context it was created from. Its router can be mounted under the router of that context, or of a context derived from it with `.middleware()` (same lineage, more middleware). Mounting it under any other context throws an `Error` that names both paths. Examples are an ancestor (the parent before a `.middleware()` call), a sibling `.middleware()` branch, and an unrelated context.
+- **Curried form.** Takes the parent as a type only, so the child's module needs only an `import type` of the parent. Use it when the parent's module imports the child's router (a circular import), where the value form would read an uninitialized parent. The child's runtime `path` is only `path` (its type is still the full path). When its router is mounted under the parent's router, `meta.path` is still the full path. Not deprecated.
 
 ## `RouteContext<TPath, TVars>`
 
@@ -59,6 +58,28 @@ interface RouteContext<TPath extends string, TVars extends object> {
 - `middlewares` — the runtime list of middlewares applied by `makeRouter`.
 - `segment` — internal. The path relative to the parent, used by `makeRouter` as the router's base path so that mounting does not prefix the parent path twice. When absent, `makeRouter` uses `path`.
 - `middleware<NewVars>(handler)` — returns a new context with `handler` appended and `NewVars` merged into `TVars`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>"`: redeclaring fails on the type argument with a single error, and the handler keeps its contextual types. Without a type argument, `NewVars` defaults to `{}` (or is inferred from a pre-typed handler).
+
+## `ContextEnv<TContext, TNewVars>`
+
+```ts
+type ContextEnv<TContext extends { path: string; vars: object }, TNewVars extends object = {}> = {
+  Variables: TContext['vars'] & TNewVars;
+};
+```
+
+The Hono `Env` of a middleware that runs on `TContext` and sets `TNewVars`. Give it to `createMiddleware` from `hono/factory`. The middleware then reads the vars of the context and sets the new vars, all typed:
+
+```ts
+const loadTenant = createMiddleware<ContextEnv<typeof apiRoute, { tenantId: string }>>(
+  async (c, next) => {
+    c.set('tenantId', `tenant-of-${c.var.session.userId}`);
+    await next();
+  },
+);
+const tenantRoute = apiRoute.middleware<{ tenantId: string }>(loadTenant);
+```
+
+Hono's `Context` type must match `Variables` exactly. So a middleware fits only contexts whose vars are equal to `TContext['vars']`. On a context without vars, `createMiddleware<{ Variables: TNewVars }>` also fits.
 
 ## `createRouter(options?)`
 
@@ -85,7 +106,7 @@ interface RouteHookMeta {
 
 Returns a `makeRouter`. Options:
 
-- **`routeMiddleware`** — factories invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output) and a `RouteHookMeta`. The returned middlewares are attached to the route's exact method + path (`router.on(method, path)`), so other methods on the same path are unaffected; HEAD requests run a GET route's middlewares. When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract.
+- **`routeMiddleware`** — factories invoked once **at route declaration time** with the resolved `RouteConfig` (the `createRoute()` output) and a `RouteHookMeta`. The returned middlewares are attached to the route's exact method + path (`router.on(method, path)`), so other methods on the same path are unaffected; HEAD requests run a GET route's middlewares. When an array is supplied, middlewares run in array order. Each middleware can call `next()` to continue or return a `Response` to short-circuit — Hono's standard middleware contract. `RouteMiddlewareFactory` returns an untyped `MiddlewareHandler`, so a factory that returns `createMiddleware<{ Variables: { session: Session } }>(...)` type-checks even when no middleware sets `session`: the library does not check the vars that a factory's middleware reads.
 
 - **`routeDefaults`** — a partial `RouteConfig` deep-merged into every route declared via this router. Pipeline order: `routeDefaults` ⊕ per-route config → `createRoute()` → `meta` computed → `transformRoute` → `routeMiddleware` factories → returned to caller. Merge rules:
   - **Plain objects** recurse key-by-key (e.g. `responses[200]`, `request.params`).
@@ -93,13 +114,13 @@ Returns a `makeRouter`. Options:
   - **Zod schemas** at the same merge position are unioned via `baseSchema.or(routeSchema)`. Useful when both `routeDefaults` and the route declare e.g. `responses[422]` with different validation-error shapes.
   - **All other leaf conflicts** are won by the per-route value.
 
-  The merged shape is reflected in the static return type of `route()`, so handlers see the combined `responses`/`request` (with `ZodUnion<readonly [default, route]>` at colliding schema slots).
+  The merged shape is reflected in the static return type of `defineRoute()`, so handlers see the combined `responses`/`request` (with `ZodUnion<readonly [default, route]>` at colliding schema slots).
 
 - **`base`** — deprecated name of `routeDefaults`, removed in 2.0. It infers and merges the same way. If both are set, `routeDefaults` is used and `base` is ignored.
 
-- **`transformRoute`** — a runtime-only `(config, meta) => RouteConfig` hook applied immediately after `createRoute()` (and after the `routeDefaults` merge), before `routeMiddleware` factories receive the config and before it is returned to the caller. The static return type of `route()` is **not** affected by this hook; it is an escape hatch for cross-cutting mutations (auto-tagging, injecting `operationId`, normalizing security entries, etc.).
+- **`transformRoute`** — a runtime-only `(config, meta) => RouteConfig` hook applied immediately after `createRoute()` (and after the `routeDefaults` merge), before `routeMiddleware` factories receive the config and before it is returned to the caller. The static return type of `defineRoute()` is **not** affected by this hook; it is an escape hatch for cross-cutting mutations (auto-tagging, injecting `operationId`, normalizing security entries, etc.).
 
-- **`RouteHookMeta`** — the second argument of `routeMiddleware` factories and `transformRoute`. `meta.path` is the context's runtime `path` joined with the route's relative path (`'/'` gives the context path; a root defined as `''` gives `'/'`), in Hono `:param` syntax. It is computed before `transformRoute` and does not change if the hook rewrites `config.path`. For root contexts and value-form children it is the full URL path; for a curried child it starts at the child's own segment. `config.path` itself stays relative (usually `'/'`).
+- **`RouteHookMeta`** — the second argument of `routeMiddleware` factories and `transformRoute`. `meta.path` is the router's full mount path joined with the route's relative path (`'/'` gives the mount path; a root defined as `''` gives `'/'`), in Hono `:param` syntax. It is computed before `transformRoute` and does not change if the hook rewrites `config.path`. A mounted router always gets the full URL path in `meta.path`. Its parent passes its own full path, and the router joins it with its segment. This is true for value-form children, curried children, and value-form children of a curried parent. A thunk called directly, with no parent, uses its context's runtime `path`. That is the full path for a root. For a value-form child, it is the full path only when every ancestor is a root or a value-form child. A value-form child with a curried ancestor gets a partial path that starts at that ancestor's segment (for example `/things/sub`). A curried child gets only its segment. `config.path` itself stays relative (usually `'/'`).
 
 ## `BaseRouteConfig` and `DeepMerge<A, B>`
 
@@ -115,7 +136,7 @@ Exported as type-only helpers. `DeepMerge` is the type-level equivalent of the r
 - it recurses through plain objects. When the route type of a key includes `undefined`, the result also includes the base type and `undefined`, because the runtime keeps the base value for an absent key and copies an explicit `undefined`;
 - otherwise the second argument wins.
 
-Known limitation: optional (`?`) modifiers are not kept through the merge. When `routeDefaults` has no keys, `route()` returns the route config type unchanged. Use `DeepMerge` to type external wrappers that build configs from the same `routeDefaults`.
+Known limitation: optional (`?`) modifiers are not kept through the merge. When `routeDefaults` has no keys, `defineRoute()` returns the route config type unchanged. Use `DeepMerge` to type external wrappers that build configs from the same `routeDefaults`.
 
 ## `makeRouter(context, factory, children?)`
 
@@ -127,6 +148,8 @@ function makeRouter<TPath, TVars, TFactoryResult>(
   context: RouteContext<TPath, TVars>,
   factory: (options: {
     router: OpenAPIHono<{ Variables: TVars }>;
+    defineRoute: MakeRouteFn<TPath, TBase>;
+    /** @deprecated Use defineRoute. Removed in 2.0. */
     route: MakeRouteFn<TPath, TBase>;
   }) => TFactoryResult | void,
 ): () => FactoryReturn<TFactoryResult, OpenAPIHono<{ Variables: TVars }>>;
@@ -141,6 +164,8 @@ function makeRouter<
   context: RouteContext<TPath, TVars>,
   factory: (options: {
     router: OpenAPIHono<{ Variables: TVars }>;
+    defineRoute: MakeRouteFn<TPath, TBase>;
+    /** @deprecated Use defineRoute. Removed in 2.0. */
     route: MakeRouteFn<TPath, TBase>;
   }) => TFactoryResult,
   children?: TChildren,
@@ -160,14 +185,19 @@ passed, the factory must return a router or nothing.
 The built app's type includes the children's routes, so `hc` and `testClient` see
 them. Pass `children` inline or `as const`: an array held in an annotated variable
 (for example `(() => OpenAPIHono<any, any, any>)[]`) widens and drops the schemas.
+If two children declare the same method and path, the client type for that path becomes
+`never` or a false merge of the two bodies, because the schemas are intersected (as in
+Hono's `route()`). Declare each method and path once.
 
-`TBase` is threaded from `createRouter`'s options, so `route()`'s return type reflects the configured `routeDefaults`.
+`TBase` is threaded from `createRouter`'s options, so `defineRoute()`'s return type reflects the configured `routeDefaults`.
 
 The router's base path is `context.segment ?? context.path`: the context's path relative to its parent.
 
-Returns a **thunk** that, when invoked, builds and returns the router. The deferred invocation allows children to be mounted by a parent without ordering issues.
+Returns a **thunk** that, when invoked, builds and returns the router. The deferred invocation allows children to be mounted by a parent without ordering issues. Its public type takes no arguments, so call it as `thunk()`. At runtime a parent calls each child thunk with an internal argument that holds the parent's full mount path; the child uses it only to compute `meta.path`. A thunk called with no argument (directly, or wrapped as `() => thunk()` in `children`) uses its context's runtime `path` for `meta.path`, as described under `RouteHookMeta`. Routing is the same in both cases.
 
-The `route(method, config)` argument supplied to `factory`:
+The same internal argument also identifies the parent's context. A value-form child's thunk can be mounted under the context that it was defined from, or under a `.middleware()` descendant of that context. Under any other context, the thunk throws an `Error` (`makeRouter: the child context '…' was defined under the context at '…', but its router is mounted under …`). Without this check, a child defined under an auth-protected parent and mounted under another parent would serve its routes without the parent's middlewares. A `.middleware()` descendant runs all of the parent's middlewares plus its own, so mounting under it is allowed. Curried children, thunks called directly, and thunks wrapped as `() => thunk()` are not checked.
+
+The `defineRoute(method, config)` argument supplied to `factory` (`route` is a deprecated alias that holds the same function):
 
 - Calls `createRoute({ method, path: '/', ...config })` so that the route is registered at the context's base path.
 - If `createRouter` was given `routeMiddleware`, calls each factory with the config and its `RouteHookMeta`, and attaches the resulting middleware(s) to this route's method + path.
@@ -318,7 +348,9 @@ Two classes with the same tag are also rejected (`Error class at index N shares 
 
 **Exhaustive.** `handlers` must have a key for every class, and no other key. A missing key is reported as a missing property; an extra key as a value not assignable to `never`. Each handler receives the instance of its own class (`e.sku` above) and the `Context`, and returns a response or `rethrow()`, sync or async, as in `onError`.
 
-**Dispatch.** A thrown `Error` is matched against the classes **in list order, by `instanceof`**, so list a subclass before its parent. Only the first class that matches handles it. The handler is then picked by the error's runtime tag: its `_tag` if `handlers` has that key, else its `name`. These agree whenever the error's tag is its class's tag, which TypeScript enforces for a subclass that redeclares a literal `_tag` or `name`. The one case where they differ: a parent tagged by `name` and a subclass that adds a `_tag`, with the parent listed first. The subclass instance then goes to the subclass's handler (if listed), not the parent's. Non-`Error` throws bypass the arms.
+**Dispatch.** A thrown `Error` that is an instance of **any** listed class (by `instanceof`) is handled by the handler keyed by its runtime tag: its `_tag` if `handlers` has that key, else its `name`. **List order does not matter**: the class list only decides whether the tuple handles the error, and the tag picks the handler. An unlisted subclass that inherits a listed class's tag goes to that class's handler. A `rethrow()` passes the error to the arms after the tuple. Non-`Error` throws bypass the arms.
+
+**Hazard: reused tags.** TypeScript rejects a subclass that changes an inherited literal `_tag` or `name`, but not a subclass of a `name`-tagged class that _adds_ a `_tag`. If that `_tag` equals another listed class's tag, the error goes to that other class's handler, whose parameter is typed as that class although the error is not an instance of it. Do not reuse a tag across unrelated classes.
 
 **Rethrow.** A handler that returns `rethrow()` passes the error past the rest of the tuple to the next arm after it (for example an `onError(Error, ...)` spread after it). If no arm handles it, the original error is rethrown.
 
