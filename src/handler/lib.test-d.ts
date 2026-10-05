@@ -16,7 +16,7 @@ const ctx = defineRootContext('/api', []);
 
 class ConflictError extends Error {}
 
-// `handle` without arms returns exactly the body's promise type.
+// `handle` without arms returns the exact promise type of the body.
 {
   const c = {} as Context;
   const ok200 = c.json({ ok: true }, 200);
@@ -27,8 +27,8 @@ class ConflictError extends Error {}
   expectTypeOf(handle(c, async () => 'x' as const)).toEqualTypeOf<Promise<'x'>>();
 }
 
-// `handle` with arms widens the result with each arm's response; a rethrow-only arm
-// (sync or async) adds nothing.
+// `handle` with arms adds the response of each arm to the result. An arm that only rethrows
+// adds nothing.
 {
   const c = {} as Context;
 
@@ -63,8 +63,7 @@ class ConflictError extends Error {}
   expectTypeOf(handle(c, body, [])).toEqualTypeOf<Promise<Ok>>();
 }
 
-// Inside `router.openapi`: the proxy is typed from the route, and a declared arm status
-// type-checks.
+// In `router.openapi`, the route types the proxy, and an arm with a declared status compiles.
 createRouter()(defineRootContext('/api/:id', []), ({ app, defineRoute }) => {
   const declared = defineRoute('post', {
     request: { params: z.object({ id: z.string() }) },
@@ -117,11 +116,11 @@ createRouter()(defineRootContext('/api/:id', []), ({ app, defineRoute }) =>
   void handle(c, async ({ json, param, query }) => [json, param, query]);
 }
 
-// An arm response the route does NOT declare is a compile error.
+// An arm response that the route does not declare is a compile error.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok } });
   app.openapi(declared, (c) =>
-    // @ts-expect-error — the 409 arm response is absent from `responses`
+    // @ts-expect-error the 409 arm response is not in `responses`
     handle(c, async () => c.json({ ok: true }, 200), [
       onError(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]),
@@ -138,17 +137,16 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   );
 });
 
-// The body returning an undeclared status is a compile error.
+// A body that returns an undeclared status is a compile error.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok } });
   app.openapi(declared, (c) =>
-    // @ts-expect-error — 500 is absent from `responses`
+    // @ts-expect-error 500 is not in `responses`
     handle(c, async () => c.json({ ok: true }, 500)),
   );
 });
 
-// Deprecated `handler(c, fn).errors([...])` and `on`: same typing as above.
-// `.errors([...])` widens the awaited result with each arm's response type.
+// The deprecated `handler(c, fn).errors([...])` and `on` type as `handle` does.
 {
   const c = {} as Context;
   const ok200 = c.json({ ok: true }, 200);
@@ -164,9 +162,7 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   expectTypeOf<R>().toEqualTypeOf<typeof ok200 | typeof conflict409>();
 }
 
-// An arm that only ever rethrows contributes no response to the union: the
-// result matches wiring no arms at all (the union test above shows an active
-// arm would otherwise add its 409).
+// An arm that only rethrows adds no response. The result equals the result without arms.
 {
   const c = {} as Context;
   const noArms = () => handler(c, async () => c.json({ ok: true }, 200)).errors([]);
@@ -181,9 +177,7 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   expectTypeOf<R>().toEqualTypeOf<NoArms>();
 }
 
-// `handleErrors` and `.errors([...])` share one arm extractor (`ArmsResponse` in
-// errors/lib): both resolve to `TBody | <each arm's awaited response, minus Rethrow>`
-// for one arm, two arms, a rethrow-only arm, and an async arm.
+// `handleErrors` and `.errors([...])` give the same type, because both use `ArmsResponse`.
 {
   const c = {} as Context;
 
@@ -205,25 +199,21 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   const rethrowArm = on(ConflictError, () => rethrow());
   const asyncArm = on(MissingError, async (_e, ec) => ec.json({ message: 'nf' }, 404));
 
-  // (a) one arm returning 404
   expectTypeOf(handler(c, body).errors([notFoundArm])).toEqualTypeOf<Promise<Ok | NotFound>>();
   expectTypeOf(handleErrors(body, [notFoundArm], c)).toEqualTypeOf<Promise<Ok | NotFound>>();
-  // (b) two arms 404 | 409
   expectTypeOf(handler(c, body).errors([notFoundArm, conflictArm])).toEqualTypeOf<
     Promise<Ok | NotFound | Conflict>
   >();
   expectTypeOf(handleErrors(body, [notFoundArm, conflictArm], c)).toEqualTypeOf<
     Promise<Ok | NotFound | Conflict>
   >();
-  // (c) rethrow-only arm adds nothing
   expectTypeOf(handler(c, body).errors([rethrowArm])).toEqualTypeOf<Promise<Ok>>();
   expectTypeOf(handleErrors(body, [rethrowArm], c)).toEqualTypeOf<Promise<Ok>>();
-  // (d) async arm contributes its awaited response
   expectTypeOf(handler(c, body).errors([asyncArm])).toEqualTypeOf<Promise<Ok | NotFound>>();
   expectTypeOf(handleErrors(body, [asyncArm], c)).toEqualTypeOf<Promise<Ok | NotFound>>();
 }
 
-// A response an arm can emit that IS declared on the route type-checks.
+// An arm response that the route declares compiles.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok, 409: conflict } });
   app.openapi(declared, (c) =>
@@ -233,18 +223,18 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   );
 });
 
-// A response an arm can emit that the route does NOT declare is a compile error.
+// An arm response that the route does not declare is a compile error.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok } });
   app.openapi(declared, (c) =>
-    // @ts-expect-error — the 409 arm response is absent from `responses`
+    // @ts-expect-error the 409 arm response is not in `responses`
     handler(c, async () => c.json({ ok: true }, 200)).errors([
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]),
   );
 });
 
-// An async arm that only rethrows adds nothing to the response type (no `symbol` leak).
+// An async arm that only rethrows adds nothing to the response type, not even `symbol`.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok } });
   app.openapi(declared, (c) =>
@@ -254,11 +244,11 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   );
 });
 
-// The body returning an undeclared status is likewise a compile error.
+// A body that returns an undeclared status is a compile error.
 createRouter()(ctx, ({ app, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok } });
   app.openapi(declared, (c) =>
-    // @ts-expect-error — 500 is absent from `responses`
+    // @ts-expect-error 500 is not in `responses`
     handler(c, async () => c.json({ ok: true }, 500)),
   );
 });

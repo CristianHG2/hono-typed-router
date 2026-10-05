@@ -4,25 +4,18 @@ import { getRouteIdentity } from '../definitions/lib';
 /** The public function that a runtime error names after the `hono-typed-router:` prefix. */
 export type RouterCaller = 'makeRouter' | 'mountRouter';
 
-/**
- * @internal Exported for declaration emit; not part of the public API.
- *
- * Internal argument a parent thunk passes to each child thunk it mounts.
- */
+/** @internal The argument that a parent thunk gives to each child thunk. */
 export type RouterMount = {
-  /** The function that mounts the child: `makeRouter`, or `mountRouter` for its children. */
   readonly caller: RouterCaller;
-  /** The parent's full mount path: where the parent router itself is served. */
+  /** The full path of the parent router. */
   readonly basePath: string;
-  /** The lineage of the parent's context, to detect a value-form child mounted elsewhere. */
   readonly lineage?: readonly symbol[];
 };
 
 /**
- * Throws when a value-form child is mounted under a context that is not the one it was
- * defined from or a `.middleware()` descendant of it. Under an ancestor or an unrelated
- * context, its routes would run without some of the middlewares that its type assumes.
- * Curried children have no recorded parent, so they are not checked.
+ * Throws when a value-form child is mounted under a context that is not its parent or a
+ * `.middleware()` descendant of its parent. Its routes then run without middlewares that
+ * its type expects. Limit: a curried child has no recorded parent, so it passes.
  */
 export const assertMountedUnderParent = (
   context: RouteContext<string, object>,

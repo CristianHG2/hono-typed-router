@@ -136,7 +136,7 @@ describe('testClient', () => {
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ id: 't1', name: 'Gadget' });
 
-    // @ts-expect-error — `name` is required by the request schema
+    // @ts-expect-error The request schema requires `name`.
     const bad = await client.api.things.$post({ json: {} }, { headers });
 
     expect(bad.status).toBe(400);

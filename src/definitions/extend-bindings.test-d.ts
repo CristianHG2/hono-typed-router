@@ -6,10 +6,9 @@ import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './ext
 import { defineRootContext as baseRoot } from './lib';
 import type { ParentContext, RouteContext } from './types';
 
-// An extended context does not carry Cloudflare `Bindings`. A child of a parent with bindings,
-// and a middleware that declares `Bindings`, are compile errors. Each `@ts-expect-error` call
-// stays on one line: the error column differs between TypeScript versions, and the curried
-// form reports a second error on the same line.
+// An extended context has no Cloudflare `Bindings`. Keep each `@ts-expect-error` call on one
+// line: the error column differs between TypeScript versions, and the curried form reports a
+// second error on the same line.
 
 interface Ctx<TPath extends string, TVars extends object> extends RouteContextBase<
   CtxKind,
@@ -79,7 +78,7 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
 }
 
 // A parent without bindings is accepted, in both forms. The curried form shows its vars as
-// `object & V` (see the display quirk in docs/api.md), so it uses `toMatchTypeOf`.
+// `object & V` (see docs/api.md), so the test uses `toMatchTypeOf`.
 {
   const empty = baseRoot<'/e', { s: string }, {}>('/e');
   expectTypeOf(ext.defineChildContext(empty, '/x').path).toEqualTypeOf<'/e/x'>();
@@ -127,8 +126,8 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
   expectTypeOf(ext.defineChildContext(loose, '/x').path).toEqualTypeOf<'/u/x'>();
 }
 
-// Generic helpers compile. TypeScript checks a type parameter as a permissive wildcard, which
-// gives no bindings. These helpers guard that the checks skip the wildcard.
+// Generic helpers compile, because the checks skip the permissive wildcard of a type parameter.
+// See `extend-bindings.ts`.
 {
   const valueHelper = <B extends object>(p: RouteContext<'/api', {}, B>) =>
     ext.defineChildContext(p, '/x');
@@ -146,8 +145,8 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
   expectTypeOf(parentHelper(api).path).toEqualTypeOf<`${string}/x`>();
   expectTypeOf(curriedParentHelper<typeof api>().path).toEqualTypeOf<'/api/x'>();
 
-  // The check does not run through a helper: a call with a parent that has bindings compiles,
-  // and the child drops the bindings.
+  // Limit: the check does not run through a helper. A parent with bindings compiles, and the
+  // child drops the bindings.
   expectTypeOf(
     valueHelper(baseRoot<'/api', {}, { DB: Db }>('/api')).path,
   ).toEqualTypeOf<'/api/x'>();

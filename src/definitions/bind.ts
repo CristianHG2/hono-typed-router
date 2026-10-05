@@ -6,22 +6,18 @@ import type { RouterEnv } from './env';
  * The params that `.bind()` accepts: the required params of the context path. An optional
  * `:param?` is not accepted, because a request can match the path without it.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type BindParam<TPath extends string> = Exclude<ParamKeys<TPath>, `${string}?`>;
 
-/**
- * `true` when `T` is one type, `false` when `T` is a union. `TAll` keeps the whole union
- * while the check distributes over `T`.
- */
+/** `true` when `T` is one type, `false` when `T` is a union. `TAll` keeps the whole union. */
 type IsOne<T, TAll = T> = T extends unknown ? ([TAll] extends [T] ? true : false) : never;
 
 /**
- * The type of the `key` of `.bind()`: `TKey`, or an error message. `.bind()` sets one var, so
- * the key must be one string literal: a `string` key or a union key is an error. A key that
- * the context already has is an error.
+ * The type of the `key` of `.bind()`: `TKey`, or an error message. The key must be one new
+ * string literal.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type BindKey<TKey extends string, TVars> = string extends TKey
   ? 'Use a string literal for the key'
@@ -32,34 +28,30 @@ export type BindKey<TKey extends string, TVars> = string extends TKey
     : 'Use one string literal for the key';
 
 /**
- * The loader of `.bind()`. It gets the value of the path param and the request context,
- * with the vars and the bindings of the route context. It returns the value of the new var, `null` or
- * `undefined` when there is no value, or a promise of one of these. A loader that can return no
- * value is an error (see {@link CheckBindLoader}).
+ * The loader of `.bind()`. It gets the value of the path param and the request context. It
+ * returns the value of the new var, `null` or `undefined` for no value, or a promise of one
+ * of these.
  */
 export type BindLoader<TVars extends object, TValue, TBindings extends object = {}> = (
   value: string,
   c: Context<RouterEnv<TVars, TBindings>>,
 ) => TValue;
 
-/** The value of a loader result: `T`, or the value of a `Promise`. */
 type BindLoaded<T> = T extends Promise<infer U> ? U : T;
 
 /**
- * `'any'` for `any`, `'empty'` for `never`, else `'value'`. The `any` test is the tuple form
- * `[0] extends [1 & T]`. It also routes the wildcard type, which TypeScript puts in place of
- * a type parameter when it decides which branch of a deferred conditional type an argument
- * must satisfy, so a loader whose return type is a type parameter is not rejected.
+ * `'any'` for `any`, `'empty'` for `never`, else `'value'`. TypeScript replaces a type
+ * parameter with a permissive wildcard type when it selects the branch of a deferred
+ * conditional type. The `[0] extends [1 & T]` test sends the wildcard to `'any'`. Thus a
+ * loader with a generic return type is not rejected.
  */
 type BindLoadedKind<T> = [0] extends [1 & T] ? 'any' : [T] extends [never] ? 'empty' : 'value';
 
 /**
- * The check of the loader of `.bind()`: an error message when the loader can return no
- * value (only `null`, `undefined`, `void`, `never`, or a promise of one of these), otherwise
- * `unknown`. `BindLoaded` unwraps one level of `Promise`, not a nested `Promise` or a custom
- * thenable. A loader with a generic return type is accepted.
+ * The check of the loader of `.bind()`: an error message when the loader can return only
+ * `null`, `undefined`, `void`, `never`, or a promise of one of these. Otherwise `unknown`.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type CheckBindLoader<TValue> =
   BindLoadedKind<Exclude<BindLoaded<TValue>, null | undefined | void>> extends 'empty'
@@ -67,11 +59,8 @@ export type CheckBindLoader<TValue> =
     : unknown;
 
 /**
- * Internal: the middleware that `.bind()` adds. It reads the path param `param` and calls
- * `load`. When the param is missing, or `load` gives `null` or `undefined`, it returns
- * `c.notFound()`. Otherwise it sets the var `key` and calls `next`. An error from `load`
- * goes to `app.onError`. The function name is `bind:<key>`. `inspectRoutes` shows the name,
- * and `showRoutes` shows it only with `{ verbose: true }`.
+ * Internal: the middleware that `.bind()` adds (see `RouteContext.bind`). `inspectRoutes`
+ * shows its name, and `showRoutes` shows it only with `{ verbose: true }`.
  */
 export const createBindMiddleware = <TValue>(
   key: string,

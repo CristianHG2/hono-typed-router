@@ -8,10 +8,10 @@ import type { CheckPathParams, WithPathParams } from './path-params';
 
 export type { ChildRouter } from './children';
 
-/** @internal Exported for declaration emit; not part of the public API. */
+/** @internal */
 export type RouteConfigMethod = RouteConfig['method'];
 
-/** @internal Exported for declaration emit; not part of the public API. */
+/** @internal */
 export type InputRouteConfig = Omit<RouteConfig, 'method' | 'path'>;
 
 export type BaseRouteConfig = Partial<InputRouteConfig>;
@@ -28,26 +28,21 @@ type IsPlainObject<T> = T extends
     : false;
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * Type-level mirror of the runtime `deepMerge` used for `createRouter({ routeDefaults })`. The
- * route (`B`) wins, except:
+ * The type of the runtime `deepMerge` for `createRouter({ routeDefaults })`. The route (`B`)
+ * wins, with these exceptions:
  *
- * - zod schema on both sides: `ZodUnion<readonly [A, B]>` (runtime `base.or(route)`);
- * - array on both sides: `(A[number] | B[number])[]` (runtime concatenates and dedupes,
- *   so no tuple length is promised). Exception: a `middleware` key with a tuple on both
- *   sides gives `[...A, ...B]`, so the handler gets the vars of each middleware. The runtime
- *   removes a duplicate middleware; the type keeps it, which does not change the vars;
- * - plain object on both sides: merged key by key. A route key whose type includes
- *   `undefined` yields `A[K] | DeepMerge<A[K], B[K] without undefined> | undefined`, because
- *   the runtime keeps the base value when the key is absent and copies an explicit `undefined`.
+ * - Two zod schemas give `ZodUnion<readonly [A, B]>`, as `base.or(route)` at runtime.
+ * - Two arrays give `(A[number] | B[number])[]`. Two `middleware` tuples give `[...A, ...B]`,
+ *   so the handler gets the vars of each middleware.
+ * - Two plain objects merge key by key. A route key that can be `undefined` gives
+ *   `A[K] | DeepMerge<A[K], B[K]> | undefined`, because the runtime copies an explicit
+ *   `undefined`.
+ * - A route `security: []` replaces the base value. Other empty arrays merge.
  *
- * One key-specific rule: a route `security` that is an empty array replaces the base value
- * instead of merging, so `security: []` opts a route out of `routeDefaults.security` (OpenAPI
- * semantics). Other empty arrays, such as `tags: []`, are still additive.
- *
- * Known limitation: optional (`?`) modifiers are not preserved through the merge; a key
- * merged from an optional property is required in the result (its type keeps `undefined`).
+ * Limit: the merge drops the `?` modifier. A key from an optional property is required, and
+ * its type keeps `undefined`.
  */
 export type DeepMerge<A, B> = A extends ZodType
   ? B extends ZodType
@@ -61,7 +56,7 @@ export type DeepMerge<A, B> = A extends ZodType
       ? MergeObjects<A, B>
       : B;
 
-// A route `security: []` (inferred as `never[]` or `[]`) replaces the base value, as at runtime.
+// TypeScript infers `security: []` as `never[]` or `[]`.
 type MergeObjects<A, B> = {
   [K in keyof A | keyof B]: K extends keyof B
     ? K extends keyof A
@@ -92,14 +87,12 @@ type MergeKey<A, B> = undefined extends B
   : DeepMerge<A, B>;
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * Declares a route at the context path. `const` keeps literal types, so a `middleware`
- * array stays a tuple and the handler gets the vars of each middleware. `request.params` is
- * built from the context path (see {@link WithPathParams}). At runtime, the params come from
- * the path where the app is served: the full path when a parent mounts the router, and only
- * the context's own segment when you call a child router directly (for example in a test).
- * Thus a directly called child router does not get the params of its parents.
+ * Declares a route at the context path. `const` keeps a `middleware` array as a tuple, so
+ * the handler gets the vars of each middleware. `request.params` comes from the context path
+ * (see {@link WithPathParams}). Limit: a child router that you call directly, for example in
+ * a test, does not get the params of its parents at runtime.
  */
 export type MakeRouteFn<TPath extends string, TBase extends BaseRouteConfig = {}> = <
   TMethod extends RouteConfigMethod,
@@ -113,10 +106,9 @@ export type MakeRouteFn<TPath extends string, TBase extends BaseRouteConfig = {}
 };
 
 /**
- * The `routeDefaults` merge and the path params, in the runtime order. Without
- * `routeDefaults` keys, the route config keeps its `?` modifiers. When the route declares no
- * params and `routeDefaults.request.params` is set, the path params are added to the merged
- * params. Otherwise they are added to the route's params before the merge.
+ * The `routeDefaults` merge and the path params, in the runtime order. If the route declares
+ * no params and `routeDefaults.request.params` exists, the path params go into the merged
+ * params. Otherwise they go into the route params before the merge.
  */
 type RouteWithParams<TPath extends string, TBase, C> = [keyof TBase] extends [never]
   ? WithPathParams<TPath, C>
@@ -129,26 +121,21 @@ type RouteWithParams<TPath extends string, TBase, C> = [keyof TBase] extends [ne
 /** Declaration-time metadata passed to `routeMiddleware` factories and `transformRoute`. */
 export interface RouteMeta {
   /**
-   * The route's full URL path: the router's mount path joined with the route's relative
-   * path, in Hono `:param` syntax, as Hono registers it. A route path `'/'` gives the mount
-   * path itself and keeps its trailing slash: a child at `'/things/'` under `/api` gives
-   * `/api/things/`, and its route `'/x'` gives `/api/things/x`. It is computed before
-   * `transformRoute` runs and is not changed by it. A router mounted as a child (in
-   * `makeRouter(context, callback, children)`) gets its parent's full path joined with its
-   * own segment, so a mounted router always gets the full path, for value-form and curried
-   * `defineChildContext` contexts alike. A child segment `'/'` or `''` adds nothing, so a
-   * route `'/'` of a child at `'/'` under `/api` gets `/api`, the path that Hono serves.
-   * A thunk called directly uses its context's runtime `path`: the full path for a root,
-   * and for a value-form child only when every ancestor is a root or a value-form child.
-   * A value-form child with a curried ancestor gets a partial path from that ancestor's
-   * segment; a curried child gets only its segment. A root defined as `''` gives `'/'`.
+   * The full URL path of the route, in Hono `:param` syntax, as Hono registers it. It is the
+   * mount path joined with the route path. A route `'/'` gives the mount path with its
+   * trailing slash. A child segment `'/'` or `''` adds nothing. `transformRoute` does not
+   * change it.
+   *
+   * Limit: a thunk that you call directly uses the runtime `path` of its context. A curried
+   * child, or a value-form child with a curried ancestor, then gets a partial path. A root
+   * defined as `''` gives `'/'`.
    */
   readonly path: string;
 }
 
 /**
- * Builds a route's middleware from its resolved config. `route.path` is relative to the
- * router (usually `'/'`); `meta.path` is the context path joined with it.
+ * Makes the middleware of a route from its resolved config. `route.path` is relative to the
+ * router. `meta.path` is the full path.
  */
 export type RouteMiddlewareFactory = (
   route: RouteConfig,
@@ -157,22 +144,18 @@ export type RouteMiddlewareFactory = (
 
 export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
   /**
-   * Per-route middleware factories. `defineRoute` calls each factory once with the resolved
-   * `RouteConfig` and its {@link RouteMeta}. A factory returns a Hono `MiddlewareHandler`,
-   * or `undefined` when the route needs no middleware. `app.openapi(route, ...)` attaches
-   * the middlewares to the method and path of the route when it registers the route, so a
-   * route that you declare but do not register gets no middleware. The middlewares run in
-   * array order before the validators and the handler of the route, also for `HEAD` on a
-   * `GET` route. See `createRouter` for the configs that `openapi` accepts.
+   * Middleware factories for each route. `defineRoute` calls each factory once with the
+   * resolved `RouteConfig` and its {@link RouteMeta}. A factory returns a `MiddlewareHandler`,
+   * or `undefined` for no middleware. `app.openapi()` attaches the middlewares when it
+   * registers the route, so a route that you do not register gets none. They run in array
+   * order before the validators and the handler, also for `HEAD` on a `GET` route.
    */
   routeMiddleware?: RouteMiddlewareFactory | RouteMiddlewareFactory[];
   /**
-   * Partial `RouteConfig` deep-merged into every route declared via this router.
-   * Per-route values win on key conflicts; arrays are concatenated and deduplicated.
-   * Plain objects and arrays are compared by structure. Functions, such as middlewares,
-   * and other objects, such as class instances and Zod schemas, are compared by
-   * reference. Useful for shared `responses`, `security`, `tags`, etc. The merged
-   * shape is reflected in the type returned by `defineRoute()`.
+   * A partial `RouteConfig` that is deep-merged into each route of this router. A route
+   * value wins on a key conflict. Arrays are joined without duplicates. Plain objects and
+   * arrays are compared by structure, and other values by reference. The type that
+   * `defineRoute()` returns has the merged shape.
    */
   routeDefaults?: TBase;
   /**
@@ -181,10 +164,9 @@ export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
    */
   base?: TBase;
   /**
-   * Runtime-only transformer applied to the resolved `RouteConfig` immediately after
-   * `createRoute()` (and after the `routeDefaults` merge), before `routeMiddleware` factories
-   * receive it and before it is returned from `defineRoute()`. The static return type of
-   * `defineRoute()` is not affected by this hook. `meta.path` is computed before this hook runs.
+   * Changes the resolved `RouteConfig` at runtime. It runs after `createRoute()` and the
+   * `routeDefaults` merge, and before the `routeMiddleware` factories. It does not change the
+   * type that `defineRoute()` returns.
    */
   transformRoute?: (config: RouteConfig, meta: RouteMeta) => RouteConfig;
 }
@@ -196,10 +178,7 @@ type RouterCallback<
   TBase extends BaseRouteConfig,
   TResult,
 > = (options: {
-  /**
-   * The `OpenAPIHono` app of the context. Register routes with `app.openapi()`. Its `Env`
-   * has the vars and the bindings of the context.
-   */
+  /** The `OpenAPIHono` app of the context, with its vars and bindings. */
   app: OpenAPIHono<RouterEnv<TVars, TBindings>>;
   /** @deprecated Use app. Removed in 2.0. */
   router: OpenAPIHono<RouterEnv<TVars, TBindings>>;
@@ -210,10 +189,10 @@ type RouterCallback<
 }) => TResult;
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * The thunk's result, matching the runtime `result ?? router`: the callback's return,
- * with any `void`/`null`/`undefined` branch replaced by the app itself.
+ * The result of the thunk, as the runtime `result ?? router`. A `void`, `null` or `undefined`
+ * branch of the callback result becomes the app.
  */
 export type FactoryReturn<TResult, TRouter> = [TResult] extends [void]
   ? TRouter
@@ -238,14 +217,12 @@ type RouterWithChildrenThunk<
 >;
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * `unknown`, or an error message when the callback of a `makeRouter` call without children
- * returns an `OpenAPIHono` app with no typed routes. The app type then has no routes, and a
- * test client of the router is `unknown`. This occurs when the callback registers routes in
- * separate statements and then returns `app`. The schema is read from `OpenAPIHono` itself,
- * as in {@link ChildSchema}, so a `Hono` result, such as the result of `app.use()`, is not
- * checked. A callback that returns nothing is the opt-out.
+ * An error message when a `makeRouter` callback without children returns an `OpenAPIHono`
+ * app with no typed routes. A test client of that router is `unknown`. This occurs when the
+ * callback registers routes in separate statements and then returns `app`. A `Hono` result,
+ * such as from `app.use()`, passes. A callback that returns nothing passes.
  */
 export type CheckCallbackResult<TResult> =
   TResult extends OpenAPIHono<any, infer S, any>
@@ -256,9 +233,8 @@ export type CheckCallbackResult<TResult> =
 
 export interface MakeRouterFn<TBase extends BaseRouteConfig = {}> {
   /**
-   * Without children the callback may return anything (a router, a route list, ...), or
-   * nothing. An `OpenAPIHono` app with no typed routes is a type error (see
-   * {@link CheckCallbackResult}).
+   * Without children, the callback can return any value or nothing. An `OpenAPIHono` app
+   * with no typed routes is a type error (see {@link CheckCallbackResult}).
    */
   <TPath extends string, TVars extends object, TCallbackResult, TBindings extends object = {}>(
     context: RouteContext<TPath, TVars, TBindings>,
@@ -266,18 +242,17 @@ export interface MakeRouterFn<TBase extends BaseRouteConfig = {}> {
       CheckCallbackResult<TCallbackResult>,
   ): RouterThunk<TVars, TBindings, TCallbackResult>;
   /**
-   * With children the callback must return the app the children are mounted on, or
-   * nothing (the children are then mounted on the router itself). The thunk's result
-   * type carries the children's route schemas, so `hc` / `testClient` on the built app
-   * see the children's routes.
+   * With children, the callback returns the app for the children, or nothing to mount them
+   * on the router. The result type has the route schemas of the children, so `hc` and
+   * `testClient` see their routes.
    *
-   * When the thunk runs, it throws a `TypeError` in two cases. Two routes have the same
-   * method and full path: the client type of that path becomes `never`. A child with a param
-   * segment, such as `'/:id'`, comes before a sibling with a literal segment, such as
-   * `'/stats'`: Hono matches in registration order. The order is accepted when the param
-   * child has no middlewares of its own and no method in common with the sibling. Only
-   * the routes that `app.openapi` registers are checked: on a router maker without options,
-   * this includes a `createRoute` config.
+   * The thunk throws a `TypeError` in two cases:
+   * - Two routes have the same method and full path. The client type of that path is `never`.
+   * - A param child (`'/:id'`) comes before a literal sibling (`'/stats'`), because Hono
+   *   matches in registration order. The order passes when the param child has no
+   *   middlewares of its own and no method in common with the sibling.
+   *
+   * Only routes that `app.openapi` registers are part of these checks.
    */
   <
     TPath extends string,

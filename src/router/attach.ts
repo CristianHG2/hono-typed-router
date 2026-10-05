@@ -4,32 +4,23 @@ import type { RouterCaller } from './mount-guard';
 import { toHonoPath } from './path-params';
 import { honoJoin } from './route-match';
 
-/** What `defineRoute` records for each route config that it returns. */
 type DeclaredRoute = {
-  /** The route config that `defineRoute` returned. */
   readonly route: RouteConfig;
-  /** The app whose `defineRoute` declared the route. Only this app may register it. */
+  /** Only this app can register the route. */
   readonly owner: OpenAPIHono;
-  /** The middlewares from the `routeMiddleware` factories, without `undefined` results. */
   readonly mws: readonly MiddlewareHandler[];
-  /** `true` after `openapi` attached `mws`, so a second registration does not attach them again. */
   attached: boolean;
-  /** `true` after `openapi` of `owner` registered the route. */
   registered: boolean;
-  /** `true` when the `defineRoute` of `owner` returned the route, `false` for another config. */
+  /** `false` for a config that did not come from the `defineRoute` of `owner`. */
   readonly declared: boolean;
 };
 
-/**
- * The route configs that a `defineRoute` returned, keyed by config object. The weak keys
- * let a config and its middlewares be collected with the app.
- */
+// Weak keys let the garbage collector free a config and its middlewares with the app.
 const DECLARED = new WeakMap<object, DeclaredRoute>();
 
-/** The same records, for each router, in declaration order. */
+// In declaration order.
 const BY_ROUTER = new WeakMap<OpenAPIHono, DeclaredRoute[]>();
 
-/** Records a route config that `defineRoute` returns, with its app and its middlewares. */
 export const recordRoute = (
   route: RouteConfig,
   owner: OpenAPIHono,
@@ -58,7 +49,6 @@ const addEntry = (entry: DeclaredRoute) => {
   }
 };
 
-/** `true` when `app` has a record of the config `route`. */
 const isRecorded = (app: OpenAPIHono, route: RouteConfig): boolean =>
   BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
 
@@ -70,12 +60,8 @@ export type RegisteredRoute = {
 };
 
 /**
- * The route configs that `router.openapi` registered, in registration order. A config from
- * the `defineRoute` of `router` is in the list once, also when `openapi` registered it twice.
- * On a router maker without options, `openapi` also records each other config once: a
- * `createRoute` config, or a config without route middlewares from the `defineRoute` of
- * another router. A route that bypasses the wrapper, such as a route on
- * `app.basePath(...)`, or a raw `app.get()`, is not in the list.
+ * The route configs that `router.openapi` registered, each one time, in registration order.
+ * Limit: a route on `app.basePath(...)` or a raw `app.get()` is not in the list.
  */
 export const registeredRoutes = (router: OpenAPIHono): RegisteredRoute[] =>
   (BY_ROUTER.get(router) ?? [])
@@ -83,10 +69,8 @@ export const registeredRoutes = (router: OpenAPIHono): RegisteredRoute[] =>
     .map(({ route, declared }) => ({ route, declared }));
 
 /**
- * Throws when a route declared on `router` has route middlewares that `openapi` did not
- * attach. The caller runs it when the callback returned an app that is not `router`: a route
- * registered on that app does not run its route middlewares. A returned app is allowed
- * when every declared route attached its middlewares, or when no route has middlewares.
+ * Throws when a route of `router` has route middlewares that `openapi` did not attach. This
+ * occurs when the callback registers the route on another app and returns that app.
  */
 export const assertRoutesAttached = (
   router: OpenAPIHono,
@@ -103,19 +87,13 @@ export const assertRoutesAttached = (
 };
 
 // Not the generic signature of `openapi`: a comparison with it costs about 146,000 type
-// instantiations when TypeScript checks this file.
+// instantiations in this file.
 type OpenapiFn = (...args: never[]) => object;
 
 /**
- * Wraps the `openapi` method of an app without `createRouter` options that change a route.
- * Such an app accepts every route config, as before. A config from the `defineRoute` of
- * another app that has route middlewares throws, because this app would register the route
- * without them.
- *
- * The wrapper records a `createRoute` config, and a config without route middlewares from
- * the `defineRoute` of another app, under this app. So the duplicate check of
- * {@link registeredRoutes} sees them. The record of the other app does not change. A config
- * that this app registers two times is recorded once, as a `defineRoute` config is.
+ * Wraps `openapi` on an app without `createRouter` options. The app accepts each route
+ * config. It throws for a config with route middlewares from another app, because it cannot
+ * run them. It records the other configs, so the duplicate check sees them.
  */
 export const attachOnOpenapi = (app: OpenAPIHono) => {
   wrapOpenapi(app, (route) => {
@@ -139,9 +117,8 @@ export const attachOnOpenapi = (app: OpenAPIHono) => {
 };
 
 /**
- * As {@link attachOnOpenapi}, but a config that did not come from this app's `defineRoute`
- * also throws: the `createRouter` options of this app do not apply to it. `options` names
- * the options that change a route, and it is not empty.
+ * As {@link attachOnOpenapi}, but a config that did not come from the `defineRoute` of this
+ * app throws, because `options` do not apply to it.
  */
 export const guardOpenapi = (app: OpenAPIHono, fullPath: string, options: readonly string[]) => {
   wrapOpenapi(app, (route) => {
@@ -161,17 +138,15 @@ export const guardOpenapi = (app: OpenAPIHono, fullPath: string, options: readon
 };
 
 const wrapOpenapi = (app: OpenAPIHono, before: (route: RouteConfig) => void) => {
-  // zod-openapi defines `openapi` as an instance arrow function, so a call without `this`
-  // works. `openapiRoutes` calls `this.openapi`, so it also goes through the wrapper.
+  // zod-openapi defines `openapi` as an arrow function, so a call without `this` works.
+  // `openapiRoutes` calls `this.openapi`, so it also goes through the wrapper.
   const original: OpenapiFn = app.openapi;
 
-  // The wrapper has the same parameters and returns the result of the original (the same
-  // app). It is a runtime change only: the type of `app.openapi` does not change.
   Object.defineProperty(app, 'openapi', {
     value: (route: RouteConfig, ...rest: never[]) => {
       before(route);
 
-      // SAFETY: the arguments of this call go to the original `openapi` unchanged.
+      // SAFETY: the arguments go to the original `openapi` without change.
       return original(...([route, ...rest] as never[]));
     },
     writable: true,
@@ -192,15 +167,13 @@ const attach = (app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) => {
   if (entry.attached || entry.mws.length === 0) return;
 
   entry.attached = true;
-  // `on(METHOD, path)` instead of `use(path)` and a method check: Hono serves HEAD through
-  // the GET handlers, so the middleware also runs for HEAD. The path is converted from
-  // OpenAPI `{param}` to Hono `:param` as zod-openapi does when it registers the route, so
-  // both match the same requests.
+  // `on(METHOD, path)` and not `use(path)`: Hono serves HEAD through the GET handlers, so
+  // the middleware also runs for HEAD.
   app.on(
     route.method.toUpperCase(),
     toHonoPath(route.path),
-    // SAFETY: `mws` is not empty. The tuple cast picks the `(method, path, ...handlers)`
-    // overload of `on`; a plain `MiddlewareHandler[]` spread picks the `(method, path[])` one.
+    // SAFETY: `mws` is not empty. The tuple cast selects the `(method, path, ...handlers)`
+    // overload of `on`. A plain array spread selects the `(method, path[])` overload.
     ...(entry.mws as [MiddlewareHandler, ...MiddlewareHandler[]]),
   );
 };

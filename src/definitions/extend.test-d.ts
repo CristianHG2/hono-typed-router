@@ -11,9 +11,8 @@ import type {
   RouteContextKind,
 } from './extend';
 
-// A representative extension: bind a param-derived value under a new, typed var,
-// guarding against redeclaration — exercises path threading (ParamKeys), the vars
-// merge, and re-augmentation of the return.
+// A sample extension: it sets a value from a path param as a new typed var and rejects a
+// redeclared var. It tests the path (`ParamKeys`), the vars merge, and the extended return type.
 interface TestContext<TPath extends string, TVars extends object> extends RouteContextBase<
   TestContextKind,
   TPath,
@@ -35,15 +34,14 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
     ctx.middleware(((_c: unknown, next: () => Promise<void>) => next()) as never),
 });
 
-// Root context is augmented with the extension method and preserves the path.
+// A root context gets the extension method and keeps the path.
 {
   const ctx = defineRootContext('/api/:tenantId', []);
   expectTypeOf(ctx.path).toEqualTypeOf<'/api/:tenantId'>();
   expectTypeOf(ctx.bindValue).toBeFunction();
 }
 
-// The extension method threads path + vars: adds a typed var and re-augments, so
-// the returned context still has `bindValue`.
+// The extension method adds a typed var, and the returned context keeps `bindValue`.
 {
   const ctx = defineRootContext('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => ({
     id,
@@ -53,21 +51,21 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(ctx.bindValue).toBeFunction();
 }
 
-// `param` is constrained to the route's path params.
+// `param` must be a path param of the route.
 {
   const ctx = defineRootContext('/api/:tenantId', []);
-  // @ts-expect-error — 'nope' is not a param of '/api/:tenantId'
+  // @ts-expect-error 'nope' is not a param of '/api/:tenantId'
   ctx.bindValue('tenant', 'nope', (id) => id);
 }
 
-// Redeclaring an existing var yields the guard string, not a valid key.
+// A redeclared var gives the error string, not a valid key.
 {
   const ctx = defineRootContext('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => id);
-  // @ts-expect-error — 'tenant' already exists; key position must reject it
+  // @ts-expect-error 'tenant' is already a var
   ctx.bindValue('tenant', 'tenantId', (id) => id);
 }
 
-// Extensions survive `.middleware()` chaining.
+// An extension stays after `.middleware()`.
 {
   const ctx = defineRootContext('/api', []).middleware<{ user: { id: string } }>(
     async (_c, next) => {
@@ -79,7 +77,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(ctx.vars).toMatchTypeOf<{ user: { id: string } }>();
 }
 
-// `.middleware()` still rejects redeclaring an existing var.
+// `.middleware()` rejects a redeclared var.
 {
   const ctx = defineRootContext('/api', []).middleware<{ user: { id: string } }>(
     async (_c, next) => {
@@ -87,17 +85,17 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
     },
   );
 
-  // @ts-expect-error — redeclaring `user` fails the `NoRedeclare` constraint on the type argument
+  // @ts-expect-error `NoRedeclare` rejects the redeclared `user` on the type argument
   ctx.middleware<{
     user: { id: number };
   }>(async (c, next) => {
-    // Contextual typing survives the guard: `c` is not an implicit `any`.
+    // `c` keeps its contextual type and is not an implicit `any`.
     expectTypeOf(c.var.user).toEqualTypeOf<{ id: string } & { id: number }>();
     await next();
   });
 }
 
-// Child routes concatenate the path, inherit vars, and stay augmented.
+// A child joins the path, gets the vars, and keeps the extension.
 {
   const parent = defineRootContext('/api', []).middleware<{ user: { id: string } }>(
     async (_c, next) => {
@@ -114,8 +112,8 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(bound.vars).toMatchTypeOf<{ user: { id: string }; thing: number }>();
 }
 
-// Builder implementations get their parameters from the context interface (not `any`)
-// and must return a context.
+// A builder gets its parameter types from the context interface, not `any`, and must return
+// a context.
 {
   extendRouteContext<TestContextKind>({
     bindValue: (ctx) => (key, param, produce) => {
@@ -123,7 +121,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
       expectTypeOf(param).not.toBeAny();
       expectTypeOf(produce).not.toBeAny();
       expectTypeOf(produce).parameters.toEqualTypeOf<[id: string]>();
-      // @ts-expect-error — `key` is a string, so it is not assignable to `0` (it would be if `any`)
+      // @ts-expect-error `key` is a string, not `any`, so it is not assignable to `0`
       const asZero: 0 = key;
       void asZero;
 
@@ -134,19 +132,19 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   });
 
   extendRouteContext<TestContextKind>({
-    // @ts-expect-error — a builder must return a context, not a number
+    // @ts-expect-error a builder must return a context, not a number
     bindValue: () => () => 42,
   });
 }
 
-// The extended `defineChildContext` shares the `ParentContext` constraint
+// The extended `defineChildContext` has the `ParentContext` constraint
 {
-  // @ts-expect-error — `{ path: '/a' }` has no `vars`, so it fails the `ParentContext` constraint
+  // @ts-expect-error `{ path: '/a' }` has no `vars`
   defineChildContext<{ path: '/a' }>();
 }
 
-// Value form on an extended context: path, vars and builders carry over, and a
-// grandchild keeps chaining.
+// The value form on an extended context keeps the path, the vars and the builders. A
+// grandchild also works.
 {
   const root = defineRootContext('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => ({
     id,
@@ -174,7 +172,6 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   }>();
   expectTypeOf(grandchild.bindValue).toBeFunction();
 
-  // The curried form still compiles.
   const curried = defineChildContext<typeof root>()('/things/:id');
   expectTypeOf(curried.path).toEqualTypeOf<typeof child.path>();
 }
@@ -196,8 +193,8 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(defineChildContext(defineRootContext('', []), 'x').path).toEqualTypeOf<'/x'>();
 }
 
-// Value form nested inline as an argument of another generic call infers the full path
-// on an extended context too.
+// The value form nested inline in another generic call infers the full path on an extended
+// context too.
 {
   const bind = <P extends string>(ctx: TestContext<P, {}>, param: NoInfer<ParamKeys<P>>) =>
     ctx.bindValue('org', param, (id) => ({ id }));
@@ -216,10 +213,10 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
 
   expectTypeOf(deep.path).toEqualTypeOf<'/api/orgs/:orgId/teams'>();
 
-  // @ts-expect-error — 'nope' is not a param of '/api/orgs/:orgId'
+  // @ts-expect-error 'nope' is not a param of '/api/orgs/:orgId'
   bind(defineChildContext(root, '/orgs/:orgId'), 'nope');
 
-  // The curried form keeps working inline and still returns a callable child builder.
+  // The curried form also works inline and returns a callable child builder.
   expectTypeOf(
     bind(defineChildContext<typeof root>()('/orgs/:orgId'), 'orgId').path,
   ).toEqualTypeOf<'/api/orgs/:orgId'>();
@@ -266,7 +263,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   // Typed middlewares with different vars give their intersection, with no leading `object &`.
   expectTypeOf(defineRootContext('/e', [a, b]).vars).toEqualTypeOf<{ a: string } & { b: number }>();
 
-  // A long chain on a folded root keeps every var and the extension (no TS2589).
+  // A long chain on a folded root keeps each var and the extension, without TS2589.
   const chained = defineRootContext('/e/:id', [a, b])
     .middleware<{ session: Session }>(async (c, next) => {
       c.set('session', { userId: c.var.a });

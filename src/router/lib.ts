@@ -18,19 +18,14 @@ import { routeJoin, toHonoPath, withPathParams } from './path-params';
 type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
 
 /**
- * Builds a `makeRouter` function. Every router built from it shares the same
- * `routeDefaults`, `transformRoute` and `routeMiddleware` hooks.
+ * Makes a `makeRouter` function. Each router from it gets the same `routeDefaults`,
+ * `transformRoute` and `routeMiddleware`.
  *
- * With one of these options set, `app.openapi` accepts only the route configs that the
- * `defineRoute` of the same callback returns. It throws a `TypeError` for a
- * `createRoute` config or for a config from another router, because the options do not
- * apply to it. Set `hide` and the other route keys in `defineRoute`: a copy such as
- * `{ ...route, hide: true }` is a different config and `openapi` does not accept it. A
- * `createRouter()` without options accepts every config, and the duplicate check of
- * `makeRouter` also reads a `createRoute` config.
+ * With one of these options, `app.openapi` accepts only a config from the `defineRoute` of the
+ * same callback. It throws a `TypeError` for a `createRoute` config, a config from another
+ * router, or a copy such as `{ ...route, hide: true }`. Set `hide` in `defineRoute`.
  *
- * When both `routeDefaults` and the deprecated `base` are set, `routeDefaults` wins
- * at runtime and at the type level.
+ * If you set `routeDefaults` and the deprecated `base`, `routeDefaults` wins.
  */
 export function createRouter<const TBase extends BaseRouteConfig = {}>(
   options: Omit<CreateRouterOptions<TBase>, 'base'> & {
@@ -40,8 +35,8 @@ export function createRouter<const TBase extends BaseRouteConfig = {}>(
   },
 ): MakeRouterFn<TBase>;
 /**
- * Builds a `makeRouter` function. Every router built from it shares the same
- * `routeDefaults` (or the deprecated `base`), `transformRoute` and `routeMiddleware` hooks.
+ * Makes a `makeRouter` function. Each router from it gets the same `routeDefaults` (or the
+ * deprecated `base`), `transformRoute` and `routeMiddleware`.
  */
 export function createRouter<const TBase extends BaseRouteConfig = {}>(
   options?: CreateRouterOptions<TBase>,
@@ -63,8 +58,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
       : [options.routeMiddleware]
     : [];
 
-  // `base` is the deprecated name of `routeDefaults`; `routeDefaults` wins when both are set.
-  // SAFETY: `BaseRouteConfig` is a partial route config; `deepMerge` only reads its own keys.
+  // SAFETY: `BaseRouteConfig` is a partial route config. `deepMerge` reads only its own keys.
   const base = (options.routeDefaults ?? options.base) as Record<string, unknown> | undefined;
   const transformRoute = options.transformRoute;
 
@@ -72,8 +66,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
     // SAFETY: `request` of a route config is an object when present.
     (base?.request as { params?: unknown } | undefined)?.params !== undefined;
 
-  // The options that change a route. With one of them, a route config must come from
-  // `defineRoute`, or the options do not apply to it.
+  // With one of these options, a route config must come from `defineRoute`.
   const effectiveOptions = [
     base !== undefined && Object.keys(base).length > 0 ? 'routeDefaults' : undefined,
     transformRoute === undefined ? undefined : 'transformRoute',
@@ -84,8 +77,8 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
     // SAFETY: `deepMerge` returns the route config with the `routeDefaults` keys added.
     base ? (deepMerge(base, config) as AnyRouteConfigInput) : config;
 
-  // SAFETY: erased implementation of `MakeRouterFn`; it returns the callback's result (or the
-  // router) and mounts children, which is exactly what the generic signature describes.
+  // SAFETY: this is the erased body of `MakeRouterFn`. It returns the callback result or the
+  // router, and mounts the children, as the signatures say.
   return ((
     context: RouteContext<string, object>,
     callback: (options: {
@@ -96,25 +89,18 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
     }) => unknown,
     children?: ((mount?: RouterMount) => OpenAPIHono<any, any, any>)[],
   ) => {
-    // `mount` is internal: a parent passes it when it mounts this thunk as a child. The
-    // public `RouterThunk` types stay `() => ...`.
+    // A parent passes `mount` when it mounts this thunk. The public type stays `() => ...`.
     return (mount?: RouterMount) => {
       if (mount) assertMountedUnderParent(context, mount);
 
-      // A value-form child's `path` is the full path; mounting under the parent adds the
-      // parent's part, so the router's own base path is the relative `segment`.
+      // The parent adds its own path at mount, so the base path is the relative segment.
       const segment = context.segment ?? context.path;
       const router = new OpenAPIHono().basePath(segment);
 
-      // Mounted, the child serves at the parent's full path joined with its segment, in
-      // every context form (a curried child's runtime `path` is only its segment). Called
-      // directly, only the context's own `path` is known: the full path for a root, and for
-      // a value-form child only when no ancestor is curried (a curried ancestor contributes
-      // only its segment); the segment for a curried child.
+      // Called directly, only the context `path` is known. See `RouteMeta.path`.
       const fullPath = mount ? joinChildPath(mount.basePath, segment) : context.path;
 
-      // The path where the app serves requests. Called directly, the app serves at its
-      // segment, so the request has only the params of the segment.
+      // Called directly, the app serves at its segment, with only the params of the segment.
       const servedPath = mount ? fullPath : segment;
 
       if (context.middlewares.length > 0) {
@@ -122,20 +108,18 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
       }
 
       const defineRoute = (method: RouteConfig['method'], config: Record<string, unknown>) => {
-        // SAFETY: `config` is a route config without `method` and `path`, as `MakeRouteFn`
-        // types it; with both added, it is the input of `createRoute`.
+        // SAFETY: `MakeRouteFn` types `config` as a route config without `method` and `path`.
         const incoming = { method, path: '/', ...config } as AnyRouteConfigInput;
 
-        // The path params go on the route's own params, or, when the route has none and
-        // `routeDefaults` has params, on the merged params. Added before the merge, they would
-        // become a union with the params of `routeDefaults`.
+        // If the route has no params, add the path params after the merge. Before the merge,
+        // they make a union with the params of `routeDefaults`.
         const merged =
           defaultsHaveParams && incoming.request?.params === undefined
             ? withPathParams(servedPath, mergeDefaults(incoming))
             : mergeDefaults(withPathParams(servedPath, incoming));
 
-        // SAFETY: `merged` is `method` + `path` + a route config typed by `defineRoute()`'s callers (plus
-        // the typed `routeDefaults`); `createRoute` returns a copy plus `getRoutingPath`: a `RouteConfig`.
+        // SAFETY: `merged` is a typed route config with `method` and `path`. `createRoute`
+        // returns a copy with `getRoutingPath`, which is a `RouteConfig`.
         let declared = createRoute(merged as AnyRouteConfigInput) as RouteConfig;
         const meta: RouteMeta = { path: toHonoPath(routeJoin(fullPath, segment, declared.path)) };
 
@@ -143,8 +127,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
           declared = transformRoute(declared, meta);
         }
 
-        // Build the middlewares now (one call for each declaration). `openapi` attaches them
-        // when it registers the route.
+        // `openapi` attaches these middlewares when it registers the route.
         const mws: MiddlewareHandler[] = [];
 
         for (const f of factories) {
@@ -164,14 +147,12 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         attachOnOpenapi(router);
       }
 
-      // `router` and `route` are the deprecated names of `app` and `defineRoute`.
       const result = callback({ app: router, router, defineRoute, route: defineRoute });
 
-      // A different app (`instanceof`: a second copy of zod-openapi is not checked).
+      // Limit: `instanceof` does not find an app from a second copy of zod-openapi.
       if (result !== router && result instanceof OpenAPIHono)
         assertRoutesAttached(router, fullPath, caller);
 
-      // A callback that forgets `return router` still gets its children mounted.
       // SAFETY: `MakeRouterFn` types the callback to return an `OpenAPIHono` or nothing.
       const app = (result ?? router) as OpenAPIHono;
       const lineage = getRouteIdentity(context)?.lineage;
@@ -189,17 +170,15 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         children: built,
       });
 
-      // `RouterThunk` types this as the router when the callback returns nothing.
       return app;
     };
   }) as MakeRouterFn<TBase>;
 };
 
 /**
- * The `makeRouter` that `mountRouter` uses. It has no options, because it declares no routes.
- * The plain function type keeps the `MakeRouterFn` overloads out of `./mount`: with
- * TypeScript 7 parallel checkers, a call to them in a second module checks the `OpenAPIHono`
- * types again (about 140,000 more instantiations for each project).
+ * The `makeRouter` of `mountRouter`. The plain function type keeps the `MakeRouterFn`
+ * overloads out of `./mount`. With TypeScript 7 parallel checkers, a call to them in a
+ * second module costs about 140,000 more instantiations for each project.
  */
 export const mountingRouter: (
   context: RouteContext<string, object>,
@@ -221,7 +200,7 @@ const isZodSchema = (value: unknown): value is ZodSchemaLike => {
     value !== null &&
     typeof value === 'object' &&
     '_def' in value &&
-    // SAFETY: `value` is a non-null object; reading an optional `or` key cannot throw.
+    // SAFETY: `value` is a non-null object, so a read of `or` cannot throw.
     typeof (value as { or?: unknown }).or === 'function'
   );
 };

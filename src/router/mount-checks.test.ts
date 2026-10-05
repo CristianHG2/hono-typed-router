@@ -340,7 +340,7 @@ describe('children order', () => {
   });
 
   it('throws when a descendant of the param child has middlewares', () => {
-    // G1: the grandchild middleware would run for `GET /api/stats/x`.
+    // Else the grandchild middleware runs for `GET /api/stats/x`.
     const sub = defineChildContext(byId, '/x').middleware(pass);
     const parent = makeRouter(byId, () => {}, [routes(sub, ['post'])]);
 
@@ -348,7 +348,7 @@ describe('children order', () => {
   });
 
   it('throws when the param child calls app.use()', () => {
-    // G2: the `use` middleware would run for `GET /api/stats`.
+    // Else the `use` middleware runs for `GET /api/stats`.
     const withUse = makeRouter(byId, ({ app, defineRoute }) => {
       app.use(pass);
       app.openapi(defineRoute('post', { responses: { 200: okResponse } }), (c) =>
@@ -362,7 +362,7 @@ describe('children order', () => {
   });
 
   it('throws when the param child has a route that defineRoute did not declare', () => {
-    // G5: the raw `GET /:id` route would get `GET /api/stats`.
+    // Else the raw `GET /:id` route gets `GET /api/stats`.
     const raw = makeRouter(byId, ({ app, defineRoute }) => {
       app.get('/', (c) => c.text('raw'));
       app.openapi(defineRoute('post', { responses: { 200: okResponse } }), (c) =>
@@ -374,7 +374,7 @@ describe('children order', () => {
   });
 
   it('throws for a raw route even when its path matches no sibling route', () => {
-    // `GET /:id/sub` gets no request of `GET /stats`, but the router does not follow raw routes.
+    // `GET /:id/sub` gets no request of `GET /stats`, but the check does not read raw routes.
     const raw = makeRouter(byId, ({ app }) => {
       app.get('/sub', (c) => c.text('raw'));
     });
@@ -388,7 +388,7 @@ describe('duplicate routes with createRoute configs', () => {
   const a = defineChildContext<typeof root>()('/things');
   const b = defineChildContext<typeof root>()('/things');
 
-  // SAFETY: the registry keys apps by identity; the env type of the app does not matter.
+  // SAFETY: the registry keys apps by identity. The env type of the app has no effect.
   const recorded = (app: unknown) => registeredRoutes(app as OpenAPIHono);
 
   const rawGet = (path = '/') =>

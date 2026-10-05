@@ -1,20 +1,15 @@
-// Path rules for the children checks: the route keys that Hono serves, and whether a route of
-// one child can match a request for a route of another child.
-
 /** One route or middleware of an app, as `inspectRoutes` from `hono/dev` lists it. */
 export type RouteEntry = {
   /** The upper-case method, or `ALL` for `use()` and `all()`. */
   readonly method: string;
-  /** The full Hono path. */
   readonly path: string;
   readonly isMiddleware: boolean;
 };
 
 /**
- * Joins a base path and a route path as Hono's `mergePath` does: a route path `'/'` keeps
- * the base as it is, with its trailing slash (`'/api/things/'` + `'/'` is `'/api/things/'`,
- * `'/api'` + `'/'` is `'/api'`). Hono routes `'/things'` and `'/things/'` apart, so the
- * keys and `meta.path` keep the difference.
+ * Joins two paths as the `mergePath` of Hono. A route path `'/'` keeps the base with its
+ * trailing slash. Hono routes `'/things'` and `'/things/'` apart, so the keys keep the
+ * difference.
  */
 export const honoJoin = (base: string, sub: string): string => {
   const head = base.startsWith('/') ? base : `/${base}`;
@@ -24,20 +19,17 @@ export const honoJoin = (base: string, sub: string): string => {
   return `${head.endsWith('/') ? head.slice(0, -1) : head}/${sub.startsWith('/') ? sub.slice(1) : sub}`;
 };
 
-/** The key of a route: `METHOD /full/path`. */
 export const routeKey = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
 
 /**
- * The key with each param name replaced by `_`, so `GET /a/:id` and `GET /a/:x` have the same
- * key. Hono serves both paths with the first route. A regex (`{...}`) and the optional `?`
- * marker stay, because they change the requests that the param matches.
+ * Replaces each param name with `_`, because Hono serves `/a/:id` and `/a/:x` with the first
+ * route. A regex and the `?` marker stay, because they change the requests that match.
  */
 export const normalizeKey = (key: string): string => key.replaceAll(/\/:[^/{?]+/g, '/:_');
 
 /** `'GET'` for `HEAD`: Hono serves `HEAD` requests with the `GET` handlers. */
 const methodOf = (method: string): string => (method === 'HEAD' ? 'GET' : method);
 
-/** `true` when a request can have both methods. `ALL` matches every method. */
 export const sameMethod = (a: string, b: string): boolean =>
   a === 'ALL' || b === 'ALL' || methodOf(a) === methodOf(b);
 
@@ -78,13 +70,11 @@ const partMatches = (pattern: string, part: string): boolean => {
   const param = PARAM.exec(pattern);
   const regex = param === null ? PARAM.exec(part)?.[1] : param[1];
 
-  // A literal against a literal that differs.
   if (param === null && !isParam(part)) return false;
 
-  // A param against a param: some request can match both, as far as this check knows.
+  // Two params: a request can match both, as far as this check knows.
   if (param !== null && isParam(part)) return true;
 
-  // A param against a literal: the literal must match the regex of the param, if any.
   const literal = param === null ? pattern : part;
 
   return regex === undefined || new RegExp(`^(?:${regex})$`).test(literal);
@@ -123,7 +113,7 @@ const partsMatch = (pattern: readonly string[], parts: readonly string[]): boole
   return partMatches(head!, parts[0]!) && partsMatch(rest, parts.slice(1));
 };
 
-/** `true` when some request for the path `path` also matches the path `pattern`. */
+/** `true` when a request for `path` can also match `pattern`. */
 export const pathMatches = (pattern: string, path: string): boolean => {
   const targets = variants(pathParts(path));
 

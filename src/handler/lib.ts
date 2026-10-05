@@ -5,8 +5,8 @@ import type { AnyArm, ArmsResponse, HandlerInvocation, ValidatedProxy } from './
 const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I> => {
   const cached: Record<string, unknown> = {};
 
-  // SAFETY: every string key read through the proxy resolves to `c.req.valid(key)`, which is
-  // what `ValidatedProxy<I>` maps each validation target to.
+  // SAFETY: each string key gives `c.req.valid(key)`, which is the type that
+  // `ValidatedProxy<I>` gives to each target.
   return new Proxy(
     {},
     {
@@ -16,8 +16,8 @@ const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I>
         }
 
         if (!(key in cached)) {
-          // SAFETY: `valid` is typed over `I`'s target keys; at runtime it accepts any target
-          // string and the result is only exposed through the typed `ValidatedProxy<I>`.
+          // SAFETY: at runtime `valid` accepts each target string. Only the typed
+          // `ValidatedProxy<I>` shows the result.
           cached[key] = (c.req.valid as (target: string) => unknown)(key);
         }
 
@@ -28,15 +28,11 @@ const buildProxy = <I extends Input>(c: Context<any, any, I>): ValidatedProxy<I>
 };
 
 /**
- * Runs a route handler body with a destructurable {@link ValidatedProxy} over the
- * request's validated inputs, optionally under error arms.
- *
- * Each validation target is pulled from `c.req.valid` lazily and cached, so untouched
- * targets are never read and touched ones are read once. With `arms`, a thrown `Error`
- * is dispatched through {@link handleErrors} and the result type is widened with each
- * arm's response; without `arms` the result is exactly `Promise<R>`. Because the
- * widened value is what `router.openapi(...)` checks, an arm that can emit a response
- * the route did not declare is a compile error.
+ * Runs a route handler body with a {@link ValidatedProxy} of the validated inputs of the
+ * request. `c.req.valid` reads each target once, at the first access. With `arms`,
+ * {@link handleErrors} handles a thrown `Error`, and the result type adds the response of
+ * each arm. `router.openapi(...)` checks this type, so an arm with a response that the route
+ * does not declare is a compile error.
  *
  * ```ts
  * router.openapi(route, (c) =>
@@ -60,9 +56,8 @@ export const handle = <I extends Input, R, const A extends ReadonlyArray<AnyArm>
  * @deprecated Use {@link handle}: `handle(c, fn, arms)` replaces
  * `handler(c, fn).errors(arms)`. Removed in 2.0.
  *
- * Returns a lazy thenable over `handle(c, fn)` with an opt-in `.errors([...])` step.
- * The body runs at most once: awaiting the invocation directly and calling
- * `.errors([...])` (in any order) settle the same underlying promise.
+ * Returns a lazy thenable over `handle(c, fn)` with an optional `.errors([...])` step. The
+ * body runs one time at most, also when you await it and call `.errors([...])`.
  */
 export const handler = <I extends Input, TResponse>(
   c: Context<any, any, I>,
@@ -88,7 +83,7 @@ export const handler = <I extends Input, TResponse>(
     finally(onFinally) {
       return settle().finally(onFinally);
     },
-    // Not 'Promise': stack frames then read `HandlerInvocation.then`, not `Promise.then`.
+    // Stack frames show `HandlerInvocation.then`, not `Promise.then`.
     [Symbol.toStringTag]: 'HandlerInvocation',
     errors: <const TArms extends ReadonlyArray<AnyArm>>(arms: TArms) =>
       handleErrors(settle, arms, c),

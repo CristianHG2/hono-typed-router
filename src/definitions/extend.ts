@@ -16,9 +16,8 @@ import type {
 import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './types';
 
 /**
- * Higher-kinded slot used to pass an (unapplied) two-parameter context interface
- * to {@link extendRouteContext}. Implement it with a one-liner that maps the
- * `path`/`vars` slots onto your context interface:
+ * A higher-kinded slot that passes a context interface with two type parameters to
+ * {@link extendRouteContext}. Map the `path` and `vars` slots to your context interface:
  *
  * ```ts
  * interface MyContextKind extends RouteContextKind {
@@ -33,10 +32,9 @@ export interface RouteContextKind {
 }
 
 /**
- * Evaluates a {@link RouteContextKind} at a concrete `path`/`vars` — i.e. the
- * re-augmented context type. Because a `RouteContextKind`'s `type` resolves to an
- * *interface* (a lazy reference), using this in a method's return position chains
- * without tripping "excessively deep" instantiation.
+ * The context type of a {@link RouteContextKind} at a given `path` and `vars`. The `type` of
+ * the kind is an interface, which TypeScript resolves lazily. Thus a chain of methods that
+ * return this type does not hit the "excessively deep" instantiation error.
  */
 export type ReaugmentContext<
   K extends RouteContextKind,
@@ -45,9 +43,8 @@ export type ReaugmentContext<
 > = (K & { readonly path: TPath; readonly vars: TVars })['type'];
 
 /**
- * Base members every extended context interface should carry. Extend this in your
- * context interface and add your custom builders, each returning
- * `ReaugmentContext<YourKind, TPath, TVars & NewVars>`:
+ * The base members of an extended context interface. Extend it in your context interface
+ * and add your builders. Each builder returns `ReaugmentContext<YourKind, TPath, TVars & NewVars>`:
  *
  * ```ts
  * interface MyContext<TPath extends string, TVars extends object>
@@ -60,8 +57,8 @@ export type ReaugmentContext<
  * }
  * ```
  *
- * `middleware` and `bind` are provided here (re-augmenting through the kind), so your
- * interface only declares the extra builders. Do not declare a builder with one of these names.
+ * This interface declares `middleware` and `bind`. Do not declare a builder with one of
+ * these names.
  */
 export interface RouteContextBase<
   K extends RouteContextKind,
@@ -69,11 +66,11 @@ export interface RouteContextBase<
   TVars extends object,
 > extends Omit<RouteContext<TPath, TVars>, 'middleware' | 'bind'> {
   middleware: {
-    /** An inline handler; see the first signature of `MiddlewareFactory`. Must stay first. */
+    /** An inline handler. Must stay first (see `MiddlewareFactory`). */
     <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
       handler: MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>,
     ): ReaugmentContext<K, TPath, TVars & TNewVars>;
-    /** A reusable typed middleware; see the second signature of `MiddlewareFactory`. */
+    /** A reusable typed middleware (see `MiddlewareFactory`). */
     <THandler extends MiddlewareHandler<any, any, any>, _NoExplicitTypeArgs>(
       handler: THandler & CheckExtendedMiddlewareFits<THandler, TVars>,
     ): ReaugmentContext<K, TPath, TVars & HandlerSets<THandler>>;
@@ -89,10 +86,9 @@ export interface RouteContextBase<
 type BaseKeys = keyof RouteContextBase<RouteContextKind, string, object>;
 
 /**
- * The names of the custom builders a `K` adds on top of {@link RouteContextBase}.
- * Used to require exactly those builders in {@link extendRouteContext}.
+ * The names of the builders that `K` adds to {@link RouteContextBase}.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type ExtensionNames<K extends RouteContextKind> = Exclude<
   keyof ReaugmentContext<K, string, object>,
@@ -100,14 +96,11 @@ export type ExtensionNames<K extends RouteContextKind> = Exclude<
 >;
 
 /**
- * Runtime builders for a `K`'s custom methods. Each builder receives the augmented
- * context (whose `.middleware()` and other builders already re-augment) and returns
- * the method implementation. The implementation's parameters are typed from the
- * context interface's method (at a loose `string` path / `object` vars), and it must
- * return a context. The precise, path/vars-aware signature callers see comes from
- * the context interface.
+ * The runtime builders of the methods of `K`. Each builder gets the extended context and
+ * returns the method. The method parameters come from the context interface at a `string`
+ * path and `object` vars. Callers see the exact signature of the context interface.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type ExtensionBuilders<K extends RouteContextKind> = {
   [Name in ExtensionNames<K> & string]: (
@@ -117,38 +110,29 @@ export type ExtensionBuilders<K extends RouteContextKind> = {
   ) => ReaugmentContext<K, string, object>;
 };
 
-// `Parameters<>` cannot be used here: its `(...args: any) => any` constraint is not
-// provably met by an indexed access into the kind (TS2344).
+// Not `Parameters<>`: TypeScript cannot prove that an indexed access into the kind meets its
+// `(...args: any) => any` constraint (TS2344).
 type ParamsOf<T> = T extends (...args: infer P) => unknown ? P : never;
 
 /**
- * The augmented `define[x]` entry points returned by {@link extendRouteContext}.
+ * The `define*` functions that {@link extendRouteContext} returns.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export interface ExtendRouteContextResult<K extends RouteContextKind> {
   defineRootContext: {
-    /**
-     * See the first signature of the base `defineRootContext`. Must stay first, so that
-     * TypeScript tries it before the fold signature. One or two explicit type arguments
-     * always select it.
-     */
+    /** Must stay first (see `DefineRootContextFn`). */
     <TPath extends string, TVars extends object = {}>(
       path: TPath,
       middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
     ): ReaugmentContext<K, TPath, TVars>;
     /**
-     * Fold: see the second signature of the base `defineRootContext`. TypeScript can also
-     * select it for an array of one kind; the vars are then the same. Three explicit type
-     * arguments select it.
+     * Fold (see `DefineRootContextFn`).
      *
-     * `_TVars` is internal: do not pass it. Four explicit type arguments set the vars to the
-     * fourth argument, and nothing checks them. It is a type parameter only so that the vars
-     * reach the kind as a type parameter constrained to `object`. A kind evaluates
-     * `this['vars'] & object`, which TypeScript simplifies to `_TVars` for a type parameter.
-     * A concrete `{}` does not simplify: `{} & object` is `object`, so a direct
-     * `FoldVars<TMws>` gives `object` vars for a `MiddlewareHandler[]` variable and a
-     * leading `object &` for typed middlewares.
+     * `_TVars` is internal. Do not pass it. Four explicit type arguments set the vars without
+     * a check. A kind evaluates `this['vars'] & object`.
+     * TypeScript simplifies that to `_TVars` for a type parameter. For a concrete `{}`, it
+     * gives `object`, so a direct `FoldVars<TMws>` gives the wrong vars.
      */
     <
       TPath extends string,
@@ -161,7 +145,7 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
     ): ReaugmentContext<K, TPath, _TVars>;
   };
   defineChildContext: {
-    /** Value form; see the base `defineChildContext`. */
+    /** Value form (see `DefineChildContextFn`). */
     <
       TPath extends string,
       TParentPath extends string,
@@ -171,7 +155,7 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
       parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
       path: TPath,
     ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
-    /** Curried form (type-only parent); see the base `defineChildContext`. */
+    /** Curried form (see `DefineChildContextFn`). */
     <
       TParentContext extends { path: string; vars: object } & CheckNoBindings<
         ContextBindings<TParentContext>
@@ -190,21 +174,16 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
 }
 
 /**
- * Extends the `define[x]` context builders with custom, type-safe methods.
- *
- * Generalizes augmenting a `RouteContext` with extra builders (a `bindRepository`,
- * a `bindValue`, ...): the returned `defineRootContext`/`defineChildContext` produce
- * contexts carrying your builders, each method threads the route's path and
- * accumulated vars, and the augmentation is re-applied automatically through
- * `.middleware()` and through the builders' own return values — so the methods are
- * never lost mid-chain.
+ * Adds typed builder methods to the contexts of `defineRootContext` and `defineChildContext`.
+ * Each method gets the path and the vars of the context. The contexts that `.middleware()`,
+ * `.bind()` and your builders return keep the methods.
  *
  * An extended context does not carry Cloudflare `Bindings`. A parent with bindings, and a
  * middleware that declares `Bindings`, are compile errors.
  *
- * Describe the extended context as a self-referential interface extending
- * {@link RouteContextBase}, pair it with a {@link RouteContextKind}, then pass the
- * kind as the type argument and the matching runtime builders as the argument:
+ * Declare the context as an interface that extends {@link RouteContextBase}, and a
+ * {@link RouteContextKind} for it. Pass the kind as the type argument and the runtime
+ * builders as the argument:
  *
  * ```ts
  * interface Ctx<P extends string, V extends object> extends RouteContextBase<CtxK, P, V> {
@@ -227,14 +206,14 @@ export function extendRouteContext<K extends RouteContextKind>(
   const augment = (base: RouteContext<string, object>): RouteContext<string, object> => {
     const augmented: Record<string, unknown> = {
       ...base,
-      // SAFETY: `RouteContext.middleware` is generic only over the vars type; at runtime it
-      // takes one handler and returns a new `RouteContext`.
+      // SAFETY: `RouteContext.middleware` is generic only in its types. At runtime it takes one
+      // handler and returns a new `RouteContext`.
       middleware: (handler: MiddlewareHandler) =>
         augment(
           (base.middleware as (h: MiddlewareHandler) => RouteContext<string, object>)(handler),
         ),
-      // SAFETY: `RouteContext.bind` is generic only over the key and the value type; at runtime
-      // it takes a key, a param and a loader, and returns a new `RouteContext`.
+      // SAFETY: `RouteContext.bind` is generic only in its types. At runtime it takes a key, a
+      // param and a loader, and returns a new `RouteContext`.
       bind: (key: string, param: string, load: BindLoader<object, unknown>) =>
         augment(
           (
@@ -252,22 +231,21 @@ export function extendRouteContext<K extends RouteContextKind>(
       augmented[name] = (builders as Record<string, (ctx: unknown) => unknown>)[name](augmented);
     }
 
-    // SAFETY: `augmented` is a copy of `base` with `middleware` re-wrapped and builders added.
+    // SAFETY: `augmented` is a copy of `base` with new `middleware` and `bind`, plus the builders.
     return augmented as unknown as RouteContext<string, object>;
   };
 
-  // SAFETY: both entry points return `augment`ed contexts, which `ExtendRouteContextResult<K>`
-  // describes through the kind `K`; the erased runtime signatures cannot express that.
+  // SAFETY: both functions return extended contexts. `ExtendRouteContextResult<K>` types them
+  // through the kind `K`, which the runtime signatures cannot express.
   const defineRootContext = ((path: string, middlewares: MiddlewareHandler[] = []) =>
     augment(defineRootContextBase(path, middlewares))) as never;
 
-  // SAFETY: as for `defineRootContext` above, for both forms of the child.
+  // SAFETY: the same as `defineRootContext`, for both forms of the child.
   const defineChildContext = ((...args: [] | [ParentContext, string]) =>
     args.length === 0
       ? (path: string) => augment(defineChildContextBase<RouteContext<string, object>>()(path))
       : augment(defineChildContextBase(args[0], args[1]))) as never;
 
-  // The deprecated keys hold the same functions as the new keys.
   return {
     defineRootContext,
     defineChildContext,

@@ -30,14 +30,14 @@ class SameTagAsCart extends Error {
   readonly _tag = 'CartNotFound' as const;
 }
 
-// Keys come from a literal `_tag`, else a literal `name`; `Error.prototype.name` does not count.
+// A key comes from a literal `_tag`, else from a literal `name`. `Error.prototype.name` does not count.
 {
   expectTypeOf<ErrorTag<typeof CartNotFound>>().toEqualTypeOf<'CartNotFound'>();
   expectTypeOf<ErrorTag<typeof Legacy>>().toEqualTypeOf<'Legacy'>();
   expectTypeOf<ErrorTag<typeof Untagged>>().toBeNever();
 }
 
-// Each handler gets its own class's instance.
+// Each handler gets an instance of its own class.
 {
   matchErrors([CartNotFound, OutOfStock, Legacy], {
     CartNotFound: (e) => expectTypeOf(e).toEqualTypeOf<CartNotFound>(),
@@ -51,52 +51,52 @@ class SameTagAsCart extends Error {
   });
 }
 
-// Exhaustive: a missing key is a compile error.
+// A missing key is a compile error.
 {
   matchErrors(
     [CartNotFound, OutOfStock],
-    // @ts-expect-error — `OutOfStock` has no handler
+    // @ts-expect-error `OutOfStock` has no handler
     { CartNotFound: () => 'nf' },
   );
 }
 
-// No extra keys: a key with no matching class is a compile error. The message names the
-// key and the listed tags.
+// A key without a matching class is a compile error. The message names the key and the
+// listed tags.
 {
   matchErrors([CartNotFound], {
     CartNotFound: () => 'nf',
-    // @ts-expect-error — "Nope" is not the tag of a listed class. The tags are: CartNotFound
+    // @ts-expect-error "Nope" is not the tag of a listed class. The tags are: CartNotFound
     Nope: () => 'nope',
   });
 
   // A misspelled tag: the error is on the misspelled key.
   matchErrors([CartNotFound, OutOfStock], {
     CartNotFound: () => 'nf',
-    // @ts-expect-error — "OutOfStok" is not the tag of a listed class. The tags are: CartNotFound, OutOfStock
+    // @ts-expect-error "OutOfStok" is not the tag of a listed class. The tags are: CartNotFound, OutOfStock
     OutOfStok: () => 'oos',
   });
 }
 
-// A class with neither a literal `_tag` nor a literal `name` is rejected in the class list.
+// The class list rejects a class without a literal `_tag` or a literal `name`.
 {
   matchErrors(
-    // @ts-expect-error — `Untagged` needs a literal `_tag` or `name`
+    // @ts-expect-error `Untagged` needs a literal `_tag` or `name`
     [CartNotFound, Untagged],
     { CartNotFound: () => 'nf' },
   );
 }
 
-// Two classes with the same tag are rejected in the class list.
+// The class list rejects two classes with the same tag.
 {
   matchErrors(
-    // @ts-expect-error — `SameTagAsCart` repeats the tag `CartNotFound`
+    // @ts-expect-error `SameTagAsCart` repeats the tag `CartNotFound`
     [CartNotFound, SameTagAsCart],
     { CartNotFound: () => 'nf' },
   );
 }
 
-// `handle(c, fn, matchErrors(...))` widens exactly like the equivalent `onError` arms; a
-// rethrow-only handler (sync or async) adds nothing.
+// `handle(c, fn, matchErrors(...))` gives the same type as the equal `onError` arms. A handler
+// that only rethrows adds nothing.
 {
   const c = {} as Context;
   const body = async () => c.json({ ok: true }, 200);
@@ -119,7 +119,7 @@ class SameTagAsCart extends Error {
 
   expectTypeOf(viaMatch).toEqualTypeOf<typeof viaOnError>();
 
-  // Spreading next to an `onError` arm keeps both arms' responses.
+  // A spread next to an `onError` arm keeps the responses of both arms.
   const spread = handle(c, body, [
     ...matchErrors([CartNotFound], {
       CartNotFound: (_e, ec) => ec.json({ message: 'Cart not found' }, 404),
@@ -141,7 +141,7 @@ const notFound = jsonResponse(z.object({ message: z.string() }), 'Not Found');
 
 const ctx = defineRootContext('/api', []);
 
-// Inside `router.openapi`: declared statuses type-check, an undeclared one does not.
+// In `router.openapi`, a declared status compiles and an undeclared status is an error.
 createRouter()(ctx, ({ router, defineRoute }) => {
   const declared = defineRoute('post', { responses: { 200: ok, 404: notFound } });
 
@@ -157,7 +157,7 @@ createRouter()(ctx, ({ router, defineRoute }) => {
   );
 
   router.openapi(declared, (c) =>
-    // @ts-expect-error — the 409 handler response is absent from `responses`
+    // @ts-expect-error the 409 handler response is not in `responses`
     handle(
       c,
       async () => c.json({ ok: true }, 200),

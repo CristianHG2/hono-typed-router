@@ -5,20 +5,17 @@ import type { AnyArm, ArmsResponse } from '../errors/lib';
 export type { AnyArm, ArmsResponse };
 
 /**
- * Destructurable view over a route's validated inputs. Each key is a Hono
- * validation target (`param`, `query`, `json`, `form`, `header`, `cookie`) typed
- * from the route's `Input`, so `({ param, json }) => ...` is fully typed.
- *
- * The view has only the targets that the route declares, so reading a target that the route
- * does not declare is a compile error. A route at a path with required params always has
- * `param`. A `Context` typed with the general `Input` keeps every target. A `Context` with
- * the default `Input` (`{}`), such as a bare `Context`, gives a view with no keys.
+ * The validated inputs of a route. Each key is a Hono validation target (`param`, `query`,
+ * `json`, `form`, `header`, `cookie`) with the type from the `Input` of the route. The view
+ * has only the targets that the route declares. A route with required path params always has
+ * `param`. A `Context` with the general `Input` has every target. A `Context` with the
+ * default `Input` (`{}`) gives a view with no keys.
  */
 export type ValidatedProxy<I extends Input> = {
   [K in ProxyKeys<I>]: InputToDataByTarget<I['out'], K>;
 };
 
-// A plain key set, not an `as` clause: the `as` form costs about 10 times more.
+// A plain key set, not an `as` clause. The `as` form costs about 10 times more.
 type ProxyKeys<I extends Input> = Input extends I
   ? [keyof I] extends [never]
     ? never
@@ -28,13 +25,10 @@ type ProxyKeys<I extends Input> = Input extends I
 /**
  * @deprecated Use {@link handle}, which returns a plain `Promise`. Removed in 2.0.
  *
- * Awaitable result of the deprecated {@link handler}. Behaves as `Promise<TResponse>` on its own;
- * calling `.errors([...])` runs the body under {@link handleErrors} and widens the
- * result with the arms' responses. Because those responses flow into the value
- * returned to `router.openapi(...)`, a response an arm can emit that the route did
- * not declare in `responses` is a compile error.
+ * The result of {@link handler}. `.errors([...])` runs the body under {@link handleErrors}
+ * and adds the responses of the arms to the result type.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  */
 export type HandlerInvocation<TResponse> = Promise<TResponse> &
   Readonly<{

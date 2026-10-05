@@ -1,8 +1,7 @@
-// The docs/usage.md examples, inlined as type-level code so `test:types` catches doc drift.
-// `pnpm check:docs` requires each usage.md ```ts block to appear here verbatim (after
-// normalization). Setup and stubs sit before each block, never inside it. Blocks for external
-// packages and runtime entry points are marked `<!-- doc-check: skip -->` in usage.md.
-// Nothing here runs.
+// The docs/usage.md examples as type-level code. `test:types` compiles them, and nothing here runs.
+// `pnpm check:docs` finds each usage.md ```ts block here after normalization.
+// Setup and stubs go before each block, never inside it.
+// usage.md marks the blocks for external packages and runtime entry points as skipped.
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
@@ -35,15 +34,15 @@ import type {
 } from './index';
 import { createScopeMiddleware } from './scopes';
 
-// Type-only references keep the import count under the lint limit. `cors` and `honoLogger` are
-// the middlewares of Hono, and `ParamKeys` is the type of `hono/types`.
+// Type-only references keep the import count under the lint limit. `cors` and `honoLogger`
+// are Hono middlewares. `ParamKeys` comes from `hono/types`.
 declare const cors: typeof import('hono/cors').cors;
 
 declare const honoLogger: typeof import('hono/logger').logger;
 
 type ParamKeys<TPath extends string> = import('hono/types').ParamKeys<TPath>;
 
-// The stubs of `./services` and of the reader's own code.
+// Stubs for `./services` and for the code of the reader.
 interface Session {
   userId: string;
   scopes: string[];
@@ -261,7 +260,6 @@ declare const readSession: (c: unknown) => Promise<Session>;
   >();
   expectTypeOf(thingByIdContext.vars.organization).toEqualTypeOf<OrganizationRecord>();
 
-  // `param` has the type of the context path.
   makeRouter(thingByIdContext, ({ app, defineRoute }) => {
     const getThingRoute = defineRoute('get', {
       responses: { 200: jsonResponse(Thing, 'The thing') },
@@ -276,7 +274,6 @@ declare const readSession: (c: unknown) => Promise<Session>;
     );
   });
 
-  // An arm with a status that the route does not declare is a compile error.
   makeRouter(thingByIdContext, ({ app, defineRoute }) => {
     const getThingRoute = defineRoute('get', {
       responses: { 200: jsonResponse(Thing, 'The thing') },
@@ -321,8 +318,8 @@ declare const readSession: (c: unknown) => Promise<Session>;
   expectTypeOf(readMissingThing).toBeFunction();
 }
 
-// usage.md "Project layout": each file of the tree, in one module. The files are ordered by
-// their value imports. A `typeof` of a later context is a type-only reference, as in the files.
+// usage.md "Project layout": each file of the tree, in one module, in the order of their
+// value imports. A `typeof` of a later context is a type-only reference, as in the files.
 
 // src/api/schemas.ts
 const ErrorBody = z.object({ error: z.string() });
@@ -1188,7 +1185,6 @@ declare class UniqueConstraintError extends Error {
     );
   });
 
-  // The handler map is exhaustive.
   // @ts-expect-error `SlugTaken` has no handler
   matchErrors([ThingNotFound, SlugTaken], {
     ThingNotFound: () => rethrow(),

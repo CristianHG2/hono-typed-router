@@ -28,31 +28,31 @@ const ctx = defineChildContext(authed, '/things/:id');
 // A loader that can return no value is an error: only `null`, `undefined`, `void`, `never`, or
 // a promise of one of these.
 {
-  // @ts-expect-error — The loader returns no value (`void`)
+  // @ts-expect-error The loader returns no value (`void`)
   ctx.bind('x', 'id', () => {});
-  // @ts-expect-error — The loader returns no value (`never`)
+  // @ts-expect-error The loader returns no value (`never`)
   ctx.bind('x', 'id', () => {
     throw new Error('x');
   });
-  // @ts-expect-error — The loader returns no value (`Promise<null>`)
+  // @ts-expect-error The loader returns no value (`Promise<null>`)
   ctx.bind('x', 'id', async () => null);
-  // @ts-expect-error — The loader returns no value (`undefined`)
+  // @ts-expect-error The loader returns no value (`undefined`)
   ctx.bind('x', 'id', () => undefined);
-  // @ts-expect-error — The loader returns no value (`null`)
+  // @ts-expect-error The loader returns no value (`null`)
   ctx.bind('x', 'id', () => null);
-  // @ts-expect-error — The loader returns no value (`Promise<void>`)
+  // @ts-expect-error The loader returns no value (`Promise<void>`)
   ctx.bind('x', 'id', async () => {});
-  // @ts-expect-error — The loader returns no value (a declared `Promise<void>`)
+  // @ts-expect-error The loader returns no value (a declared `Promise<void>`)
   ctx.bind('x', 'id', voidPromise);
-  // @ts-expect-error — The loader returns no value (`null | undefined`)
+  // @ts-expect-error The loader returns no value (`null | undefined`)
   ctx.bind('x', 'id', nullOrUndefined);
-  // @ts-expect-error — The loader returns no value (`Promise<null> | undefined`)
+  // @ts-expect-error The loader returns no value (`Promise<null> | undefined`)
   ctx.bind('x', 'id', nullPromiseOrUndefined);
-  // @ts-expect-error — The loader returns no value (`Promise<never>`)
+  // @ts-expect-error The loader returns no value (`Promise<never>`)
   ctx.bind('x', 'id', async () => {
     throw new Error('x');
   });
-  // @ts-expect-error — The loader returns no value (reads `c.var`, returns nothing)
+  // @ts-expect-error The loader returns no value (reads `c.var`, returns nothing)
   ctx.bind('x', 'id', (_id, c) => {
     void c.var.session;
   });
@@ -71,7 +71,7 @@ const ctx = defineChildContext(authed, '/things/:id');
 
 // The key error wins over the loader error.
 {
-  // @ts-expect-error — Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session
   ctx.bind('session', 'id', () => null);
 
   type KeyParam = Parameters<typeof ctx.bind<'session', null>>[0];
@@ -105,9 +105,8 @@ const ctx = defineChildContext(authed, '/things/:id');
   >();
 }
 
-// These cases guard the wildcard behaviour that the check relies on (see the JSDoc of
-// `BindLoadedKind`): a loader whose return type is a type parameter is accepted. A TypeScript
-// upgrade that changes this behaviour fails here first.
+// A loader whose return type is a type parameter is accepted. The check relies on this
+// wildcard behavior (see `BindLoadedKind`). A TypeScript upgrade that changes it fails here.
 {
   const viaFind = <T>(find: (id: string) => Promise<T | null>) =>
     ctx.bind('x', 'id', (id) => find(id));

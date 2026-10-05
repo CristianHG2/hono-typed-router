@@ -10,16 +10,13 @@ const json = <TSchema extends ZodType>(schema: TSchema, description: string) => 
 /** A JSON response: `{ description, content: { 'application/json': { schema } } }`. */
 export const jsonResponse = json;
 
-/** A JSON request body. Same shape as {@link jsonResponse}; not marked `required`. */
+/** A JSON request body with the shape of {@link jsonResponse}. It is not `required`. */
 export const jsonBody = json;
 
-/**
- * A `request` fragment with a required JSON body: `{ body: { ...jsonBody(...), required: true } }`.
- * Spread or assign it as a route's `request`.
- */
+/** A route `request` with a required JSON body. */
 export const jsonRequest = <TSchema extends ZodType>(schema: TSchema, description: string) => ({
-  // `required: true` makes zod-openapi validate the body even when the request has no
-  // JSON content-type; without it a body-less request reaches the handler as `{}`.
+  // Without `required: true`, zod-openapi skips the body check for a request without a JSON
+  // content-type, and the handler gets `{}`.
   body: { ...jsonBody(schema, description), required: true },
 });
 

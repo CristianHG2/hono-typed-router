@@ -1,16 +1,10 @@
-// The path rules of a context: the full path of a child, and the runtime check that rejects
-// the OpenAPI `{param}` syntax.
-
 /**
- * A child's full path: the parent's path joined with the child's own segment by one `/`.
- * A parent path that ends in `/` (the root `'/'`) drops that slash when the segment starts
- * with one, so `'/'` + `'/things'` is `'/things'`, not `'//things'`. A segment without a
- * leading `/` under a parent that does not end in one gets one inserted, so `'/api'` +
- * `'things'` is `'/api/things'`. A segment `'/'` or `''` adds nothing, as Hono's `basePath`
- * and `route('/')` do: `'/api'` + `'/'` is `'/api'`, and `'/api/'` + `'/'` is `'/api/'`. Under
- * a root `''`, the segment `'/'` gives `'/'`. Mirrors `joinChildPath`.
+ * The parent path joined with the child segment by one `/`, as Hono joins them:
+ * `'/'` + `'/things'` is `'/things'`, and `'/api'` + `'things'` is `'/api/things'`. A segment
+ * `'/'` or `''` adds nothing: `'/api'` + `'/'` is `'/api'`. Under a root `''`, the segment
+ * `'/'` gives `'/'`. Keep it the same as `joinChildPath`.
  *
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal Exported for declaration emit.
  */
 export type ChildPath<
   TParentPath extends string,
@@ -29,14 +23,12 @@ export type ChildPath<
         ? `${TParentPath}${TPath}`
         : `${TParentPath}/${TPath}`;
 
-// A segment that starts with `{`: the OpenAPI `{param}` syntax, up to its `}` or the next `/`.
 const OPENAPI_PARAM = /^\{([^/}]*)\}?/;
 
 /**
  * The path with each OpenAPI `{name}` segment written as `:name`, or `undefined` when no
- * segment starts with `{`. A `{` inside a Hono regex param (`:id{a/{x}}`) is not a segment
- * start: the braces are counted, so a `/` inside the regex does not start a segment. A `{`
- * without a name becomes nothing, so `'/a/{'` becomes `'/a/'`.
+ * segment starts with `{`. The braces are counted, so a `/` inside a Hono regex param
+ * (`:id{a/{x}}`) does not start a segment.
  */
 const honoSyntax = (path: string): string | undefined => {
   let depth = 0;
@@ -72,10 +64,9 @@ const honoSyntax = (path: string): string | undefined => {
 };
 
 /**
- * Internal. Throws a `TypeError` when a segment of `path` starts with `{`, the OpenAPI
- * `{param}` syntax. Hono would mount such a path literally, so the path would return 404. A
- * Hono regex param such as `:id{[0-9]+}` is accepted. The check runs only at runtime: a type
- * check would also reject a generic path parameter.
+ * Internal. Rejects the OpenAPI `{param}` syntax, because Hono mounts it literally and the
+ * path returns 404. The check runs only at runtime, because a type check also rejects a
+ * generic path parameter.
  */
 export const assertHonoPath = (
   fn: 'defineRootContext' | 'defineChildContext',

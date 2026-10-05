@@ -45,7 +45,7 @@ const authed = defineRootContext('/api').middleware<{ session: Session }>(async 
     (id, c) => {
       expectTypeOf(id).toEqualTypeOf<string>();
       expectTypeOf(c.var.session).toEqualTypeOf<Session>();
-      // @ts-expect-error — the context has no `team` var
+      // @ts-expect-error the context has no `team` var
       void c.var.team;
 
       return findOrganization(id, c.var.session.userId);
@@ -74,13 +74,13 @@ const authed = defineRootContext('/api').middleware<{ session: Session }>(async 
   expectTypeOf(ctx.vars.membership).toEqualTypeOf<string>();
 }
 
-// A key that the context already has is an error with the redeclaration message.
+// A key that the context already has gives the redeclaration message.
 {
   const ctx = defineRootContext('/api/:id').bind('thing', 'id', (id) => id);
 
-  // @ts-expect-error — 'thing' is already a var
+  // @ts-expect-error 'thing' is already a var
   ctx.bind('thing', 'id', (id) => id);
-  // @ts-expect-error — 'session' is already a var of `authed`
+  // @ts-expect-error 'session' is already a var of `authed`
   defineChildContext(authed, '/:id').bind('session', 'id', (id) => id);
 
   // The key parameter of `.bind()` on a context that has `thing` is the error message.
@@ -89,8 +89,8 @@ const authed = defineRootContext('/api').middleware<{ session: Session }>(async 
   expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: thing'>();
 }
 
-// The key must be one string literal: a `string` key or a union key is an error, because
-// `.bind()` sets one var. The union check does not distribute: a union gives one message.
+// The key must be one string literal, because `.bind()` sets one var. The union check does
+// not distribute, so a union gives one message.
 declare const stringKey: string;
 
 declare const unionKey: 'a' | 'b';
@@ -98,9 +98,9 @@ declare const unionKey: 'a' | 'b';
 {
   const ctx = defineRootContext('/api/:id');
 
-  // @ts-expect-error — a `string` key does not name one var
+  // @ts-expect-error a `string` key does not name one var
   ctx.bind(stringKey, 'id', (id) => id);
-  // @ts-expect-error — a union key names two vars, and the loader sets one
+  // @ts-expect-error a union key names two vars, and the loader sets one
   ctx.bind(unionKey, 'id', (id) => id);
 
   expectTypeOf<
@@ -117,7 +117,7 @@ declare const unionKey: 'a' | 'b';
 }
 
 // An annotation on `c`, or an explicit third type argument, lets the loader read vars that the
-// context does not have. The key check still uses the vars of the context.
+// context does not have. The key check uses the vars of the context.
 {
   type OtherVars = { session: Session; other: number };
 
@@ -135,9 +135,9 @@ declare const unionKey: 'a' | 'b';
 
   expectTypeOf(explicit.vars.y).toEqualTypeOf<number>();
 
-  // @ts-expect-error — 'session' is already a var, with an annotation on `c`
+  // @ts-expect-error 'session' is already a var, with an annotation on `c`
   withId.bind('session', 'id', (_id: string, _c: Context<{ Variables: OtherVars }>) => 1);
-  // @ts-expect-error — 'session' is already a var, with an explicit third type argument
+  // @ts-expect-error 'session' is already a var, with an explicit third type argument
   withId.bind<'session', number, OtherVars>('session', 'id', () => 1);
 }
 
@@ -147,7 +147,7 @@ declare const unionKey: 'a' | 'b';
 
   const wide = defineRootContext('/api/:id' as string);
 
-  // @ts-expect-error — `BindParam<string>` is `never`
+  // @ts-expect-error `BindParam<string>` is `never`
   wide.bind('x', 'id', (id) => id);
 }
 
@@ -155,11 +155,11 @@ declare const unionKey: 'a' | 'b';
 {
   const ctx = defineRootContext('/api/:id/:slug?');
 
-  // @ts-expect-error — 'nope' is not a param of the path
+  // @ts-expect-error 'nope' is not a param of the path
   ctx.bind('thing', 'nope', (id) => id);
-  // @ts-expect-error — an optional param is not accepted
+  // @ts-expect-error an optional param is not accepted
   ctx.bind('thing', 'slug?', (id) => id);
-  // @ts-expect-error — an optional param is not accepted without its `?` either
+  // @ts-expect-error an optional param is not accepted without its `?` either
   ctx.bind('thing', 'slug', (id) => id);
   ctx.bind('thing', 'id', (id) => id);
 }
@@ -170,7 +170,7 @@ declare const unionKey: 'a' | 'b';
   expectTypeOf(ctx.vars).toEqualTypeOf<{} & { count: number }>();
 }
 
-// A loader with a bare `Context` annotation on `c` still adds a new key.
+// A loader with a bare `Context` annotation on `c` adds a new key.
 {
   const ctx = defineRootContext('/api/:id').bind('thing', 'id', (id: string, _c: Context) => id);
 
@@ -213,8 +213,8 @@ declare const unionKey: 'a' | 'b';
   expectTypeOf(ctx.vars.requestId).toEqualTypeOf<string>();
 }
 
-// A bound context is still assignable to a context with fewer vars, and `makeRouter`
-// accepts it; route handlers read the bound var.
+// A bound context is assignable to a context with fewer vars, and `makeRouter` accepts it.
+// Route handlers read the bound var.
 {
   const ctx = defineChildContext(authed, '/organizations/:organizationId').bind(
     'organization',
@@ -271,9 +271,9 @@ interface CtxKind extends RouteContextKind {
     object & { organization: Organization } & { flag: boolean } & { team: Team }
   >();
 
-  // @ts-expect-error — 'flag' is already a var
+  // @ts-expect-error 'flag' is already a var
   ctx.bind('flag', 'organizationId', () => true);
-  // @ts-expect-error — The loader returns no value: the check also runs on an extended context
+  // @ts-expect-error The loader returns no value. The check also runs on an extended context
   ctx.bind('empty', 'organizationId', async () => null);
 
   const child = extended

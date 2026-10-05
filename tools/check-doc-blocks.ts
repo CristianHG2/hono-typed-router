@@ -1,25 +1,24 @@
-// Checks that every ```ts block in the docs has a compiled twin in its `*.test-d.ts` mirror.
+// Makes sure that each ```ts block in the docs has a compiled twin in its `*.test-d.ts` mirror.
 // Run with `node --experimental-strip-types tools/check-doc-blocks.ts`. No dependencies.
 //
-// A block matches when its normalized text is a substring of the normalized mirror. Both sides
-// are normalized the same way:
-//   1. Comments are removed (string- and template-aware), so `@ts-expect-error` lines go too.
-//   2. Statements that start a line with `import`, `declare` or `expectTypeOf(` are removed, up
-//      to their `;` at bracket depth 0 (or the `}` that closes a `declare class` body).
-//   3. All whitespace is removed.
-//   4. A `,` right before `)`, `]`, `}` or `>` is removed (the formatter adds trailing commas
-//      when a mirror block sits one scope deeper and wraps differently).
-// A block is skipped when the nearest non-blank line above its fence is `<!-- doc-check: skip -->`.
-// A fence with the language `ts` or `typescript` is a ts block. An indented ts fence (inside a
-// list) fails the check: the checker reads only fences at column 0, so move the block out of
-// the list or mark it skipped.
+// A block matches when its normalized text is a substring of the normalized mirror. The
+// normalization is the same on both sides:
+//   1. Remove comments (string- and template-aware). This also removes `@ts-expect-error`.
+//   2. Remove each statement that starts a line with `import`, `declare` or `expectTypeOf(`, up
+//      to its `;` at bracket depth 0 (or the `}` that closes a `declare class` body).
+//   3. Remove all whitespace.
+//   4. Remove a `,` before `)`, `]`, `}` or `>`. The formatter adds trailing commas when a
+//      mirror block is one scope deeper and wraps differently.
+// The check skips a block when the nearest non-blank line above its fence is
+// `<!-- doc-check: skip -->`. A fence with the language `ts` or `typescript` is a ts block. An
+// indented ts fence (in a list) fails the check, because the checker reads only fences at
+// column 0. Move the block out of the list or mark it skipped.
 //
-// Limits: the match is textual, so the check does not prove that a block compiles as written.
-//   - Imports are removed, so a block can name an import that the mirror does not have.
-//   - `expectTypeOf(...)` lines are removed, so a type claim in a block is not checked.
-//   - `declare` statements are removed, so a block can declare a type that differs from the
-//     mirror's.
-//   - Comments are removed, so a comment that states a type or a result is not checked.
+// Limits: the match is textual. It does not prove that a block compiles as written.
+//   - A block can name an import that the mirror does not have.
+//   - A type claim in an `expectTypeOf(...)` line of a block is not checked.
+//   - A block can declare a type that differs from the mirror's.
+//   - A comment that states a type or a result is not checked.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -63,7 +62,7 @@ const CLOSERS = new Set([')', ']', '}']);
 
 const QUOTES = new Set(['"', "'", '`']);
 
-// Index just past the string literal that opens at `start`.
+// The index after the string literal that opens at `start`.
 function skipString(text: string, start: number): number {
   const quote = text[start];
   let index = start + 1;
@@ -105,8 +104,8 @@ function stripComments(text: string): string {
   return out;
 }
 
-// Index just past the statement that starts at `start`. A `declare class` has no `;`, so for a
-// `declare` statement the `}` that returns to depth 0 also ends it.
+// The index after the statement that starts at `start`. A `declare class` has no `;`, so the
+// `}` that returns to depth 0 also ends a `declare` statement.
 function statementEnd(text: string, start: number): number {
   const endsAtBrace = text.startsWith('declare', start);
   let depth = 0;
@@ -190,7 +189,7 @@ function extractBlocks(markdown: string): Extracted {
 
       if (ts && indent !== '' && !marked) indented.push(index + 1);
 
-      // A non-ts or indented fence: skip to its close so its body is not read as prose.
+      // Skip the body of a non-ts or indented fence, so that it is not read as prose.
       open = { line: index + 1, code: '' };
       skipping = !ts || indent !== '' || marked;
     }

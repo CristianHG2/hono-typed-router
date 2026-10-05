@@ -4,25 +4,17 @@ import type { ZodObject, ZodString, ZodType } from 'zod';
 import { honoJoin } from './route-match';
 
 /**
- * The required param keys of a Hono path. An optional `:param?` is not a key: OpenAPI cannot
- * show an optional path parameter, so `defineRoute` does not add it to `request.params`.
+ * The required param keys of a Hono path. OpenAPI has no optional path param, so a `:param?`
+ * is not a key.
  */
 type RequiredParamKeys<TPath extends string> = Exclude<ParamKeys<TPath>, `${string}?`>;
 
-/**
- * @internal Exported for declaration emit; not part of the public API.
- *
- * The zod shape that `defineRoute` derives from a context path: a `ZodString` for each
- * `:param` (also `:param{regex}`). An optional `:param?` is not in the shape.
- */
+/** @internal A `ZodString` for each required param of the path. */
 export type PathParamSchemas<TPath extends string> = {
   [K in RequiredParamKeys<TPath>]: ZodString;
 };
 
-/**
- * A declared params shape with the missing path params added, in one mapped type. A
- * declared key wins over the path key with the same name.
- */
+/** The declared params shape plus the missing path params. A declared key wins. */
 type MergedParamSchemas<TPath extends string, TDeclared> = {
   [K in keyof TDeclared | RequiredParamKeys<TPath>]: K extends keyof TDeclared
     ? TDeclared[K]
@@ -30,17 +22,14 @@ type MergedParamSchemas<TPath extends string, TDeclared> = {
 };
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * The route config with `request.params` built from the context path `TPath`:
+ * The route config with `request.params` made from the path `TPath`:
  *
- * - no params declared: a `z.object` with one string for each required path param;
- * - a declared `z.object`: its keys and types are kept, and the missing path params are
- *   added as strings. When it has every path param, the config is unchanged, which costs
- *   no extra type instantiations;
- * - any other params schema, or a path without required params: the config is unchanged.
- *
- * An optional `:param?` is not added (see {@link RequiredParamKeys}).
+ * - If the route declares no params, it gets a `z.object` with a string for each path param.
+ * - If the route declares a `z.object`, the missing path params are added. If no param is
+ *   missing, the config stays the same type, which costs no extra instantiations.
+ * - If the route declares another schema, the config does not change.
  */
 export type WithPathParams<TPath extends string, C> = [RequiredParamKeys<TPath>] extends [never]
   ? C
@@ -56,18 +45,18 @@ export type WithPathParams<TPath extends string, C> = [RequiredParamKeys<TPath>]
       : Omit<C, 'request'> & { request: R & { params: ZodObject<PathParamSchemas<TPath>> } }
     : C & { request: { params: ZodObject<PathParamSchemas<TPath>> } };
 
-// `Omit` for the config and a mapped type for `request`: a mapped type over the whole config
-// costs about 10 times more instantiations in `openapi` (measured on 100 routes).
+// A mapped type over the whole config costs about 10 times more instantiations in `openapi`
+// (measured on 100 routes), so only `request` is mapped.
 type WithParams<R, P> = { [K in keyof R]: K extends 'params' ? P : R[K] };
 
 /** A Hono param key without its optional `?` marker. */
 type ParamName<K> = K extends `${infer N}?` ? N : K;
 
 /**
- * @internal Exported for declaration emit; not part of the public API.
+ * @internal
  *
- * `unknown`, or an error type when a declared `z.object` params schema has a key that the
- * context path does not have. A widened `string` path is not checked.
+ * An error type when a declared `z.object` params schema has a key that the path does not
+ * have. A widened `string` path passes.
  */
 export type CheckPathParams<TPath extends string, C> = string extends TPath
   ? unknown
@@ -84,21 +73,14 @@ export type CheckPathParams<TPath extends string, C> = string extends TPath
 // `:name`, `:name{regex}` and `:name?`, as Hono's `ParamKeys` reads them.
 const PARAM = /:([^/{?]+)(?:{[^}]*})?(\?)?/g;
 
-/** The part of a route config that `withPathParams` reads. */
 type ParamsConfig = { path?: string; request?: { params?: SchemaLike } };
 
 // One member of `ZodType`: a full `ZodType` comparison costs about 70,000 instantiations.
 type SchemaLike = Pick<ZodType, '_zod'>;
 
 /**
- * Builds `request.params` from the required params of the served path joined with
- * `config.path`. When the route has no params, it gets a `z.object` with a string for each
- * param. When the route has a `z.object`, the missing params are added, and its own keys
- * stay as declared. An optional `:param?` is not added. Another schema owns the params, so
- * the config does not change.
- *
- * A `config.path` that `transformRoute` sets later is not read here, so its params are not
- * added.
+ * The runtime twin of {@link WithPathParams}, for the served path joined with `config.path`.
+ * Limit: a `config.path` that `transformRoute` sets later does not add params.
  */
 export const withPathParams = <C extends ParamsConfig>(servedPath: string, config: C): C => {
   const path = honoJoin(servedPath, toHonoPath(config.path ?? '/'));
@@ -123,15 +105,14 @@ export const withPathParams = <C extends ParamsConfig>(servedPath: string, confi
 
   const params = declared === undefined ? z.object(missing) : extendObject(declared, missing);
 
-  // SAFETY: the copy is `config` with `request.params` replaced by another zod schema, which
-  // `ParamsConfig` allows.
+  // SAFETY: only `request.params` changes, to another zod schema, which `ParamsConfig` allows.
   return { ...config, request: { ...config.request, params } } as C;
 };
 
 /**
- * Adds keys to a declared object and keeps its config, such as `.strict()`. `safeExtend`
- * (zod 4.1 and later) also keeps its refinements. In zod 4.1, `extend` throws for an
- * object with refinements, and in zod 4.0 it drops them.
+ * Adds keys and keeps the object config, such as `.strict()`. `safeExtend` (zod 4.1 and
+ * later) also keeps the refinements. In zod 4.1, `extend` throws for an object with
+ * refinements. In zod 4.0, `extend` drops them.
  */
 const extendObject = (declared: ObjectSchema, missing: Record<string, ZodString>) =>
   declared.safeExtend === undefined ? declared.extend(missing) : declared.safeExtend(missing);
@@ -144,14 +125,13 @@ type ObjectSchema = Pick<ZodObject, 'shape' | 'extend'> & Partial<Pick<ZodObject
 const isZodObject = (schema: SchemaLike): schema is SchemaLike & ObjectSchema =>
   'shape' in schema && 'extend' in schema;
 
-/** OpenAPI `{param}` segments become Hono `:param` segments (same regex @hono/zod-openapi uses). */
+/** Changes OpenAPI `{param}` to Hono `:param`, with the regex of @hono/zod-openapi. */
 export const toHonoPath = (path: string): string => path.replaceAll(/\/{(.+?)}/g, '/:$1');
 
 /**
- * The full path that Hono registers for a route of a router, with `honoJoin`. Hono joins
- * the route path to the router's segment first, and then joins the parent path to the
- * result. Only a route path `''` changes with this order: under a segment `'/'` or `''`,
- * it gives the full path of the router (`'/api'`, not `'/api/'`).
+ * The full path that Hono registers for a route. Hono joins the route path to the segment
+ * first, and then the parent path. This order changes only a route path `''` under a segment
+ * `'/'` or `''`: it gives `'/api'`, not `'/api/'`.
  */
 export const routeJoin = (fullPath: string, segment: string, path: string): string =>
   honoJoin(fullPath, path === '' && (segment === '/' || segment === '') ? '/' : path);

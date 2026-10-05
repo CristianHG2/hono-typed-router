@@ -1,6 +1,6 @@
-// The README examples, inlined as type-level code so `test:types` catches doc drift.
-// `pnpm check:docs` requires each README ```ts block to appear here verbatim (after
-// normalization). Setup and stubs sit before each block, never inside it. Nothing here runs.
+// The README examples as type-level code. `test:types` compiles them, and nothing here runs.
+// `pnpm check:docs` finds each README ```ts block here after normalization.
+// Setup and stubs go before each block, never inside it.
 import { expectTypeOf } from 'expect-type';
 import { createMiddleware } from 'hono/factory';
 import { testClient } from 'hono/testing';
@@ -34,8 +34,8 @@ expectTypeOf(thingsContext.path).toEqualTypeOf<'/api/things'>();
 
 expectTypeOf(testClient(app).api.things.$get).toBeFunction();
 
-// README "Quick start": without children, a callback that registers the routes in separate
-// statements and returns `app` is a compile error. Returning nothing compiles.
+// README "Quick start": without children, a callback that returns `app` after separate
+// route statements is a compile error. A callback that returns nothing compiles.
 // @ts-expect-error The callback returns an app with no typed routes
 makeRouter(thingsContext, ({ app, defineRoute }) => {
   app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
@@ -51,7 +51,7 @@ makeRouter(thingsContext, ({ app, defineRoute }) => {
   );
 });
 
-// With children, `({ app }) => app` is correct.
+// With children, `({ app }) => app` compiles.
 expectTypeOf(makeRouter(apiContext, ({ app }) => app, [thingsRouter])).toBeFunction();
 
 // README "Which middleware to use".

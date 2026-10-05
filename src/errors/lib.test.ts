@@ -77,8 +77,7 @@ describe('handleErrors', () => {
 
   it('tries the next arm when an arm returns RETHROW', async () => {
     const c = makeContext();
-    // `RETHROW` is deprecated. This test uses it on purpose, to check that the deprecated
-    // export is still the sentinel that `rethrow()` returns. Use `rethrow()` in new code.
+    // This test uses the deprecated `RETHROW` on purpose. It must stay equal to `rethrow()`.
     expect(RETHROW).toBe(rethrow());
     const first = vi.fn(() => RETHROW);
     const second = vi.fn((_err: FooError, ctx: Context) => ctx.json({ message: 'second' }, 409));
@@ -172,7 +171,7 @@ describe('handleErrors', () => {
     ).rejects.toBe(frozen);
     expect(frozen.cause).toBeUndefined();
 
-    // A `cause` that the prototype makes read-only also rejects the value.
+    // A read-only `cause` on the prototype also rejects the value.
     class ReadOnlyCauseError extends Error {
       get cause(): unknown {
         return undefined;
@@ -241,8 +240,8 @@ class Legacy extends Error {
   override readonly name = 'Legacy' as const;
 }
 
-// Tagged by `name`; its subclass adds a `_tag`, which is the only way a subclass can carry a
-// different literal tag (TypeScript rejects overriding a literal `_tag`/`name` with another).
+// The subclass adds a `_tag`. TypeScript does not let a subclass change a literal `_tag` or
+// `name`, so this is the only way for a subclass to have a different tag.
 class Payment extends Error {
   override readonly name = 'Payment' as const;
 }
@@ -257,8 +256,8 @@ class BothTags extends Error {
   override readonly name = 'FromName' as const;
 }
 
-// The `_tag` type is a literal, so `matchErrors` accepts the class, but no instance sets it at
-// runtime: neither its `_tag` nor its `name` (`'Error'`) names a handler.
+// `matchErrors` accepts the literal `_tag` type, but no instance sets `_tag` at runtime. Thus
+// no handler has the tag of an instance.
 class Ghost extends Error {
   declare readonly _tag: 'Ghost';
 }

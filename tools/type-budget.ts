@@ -1,14 +1,14 @@
 // Fails when the type-checking cost grows past the budget in `tools/type-budget.json`.
 // Run with `node --experimental-strip-types tools/type-budget.ts [--update]`. No dependencies.
 //
-// Two numbers are checked, both from `tsc --extendedDiagnostics --checkers 1` (one checker, so
-// the count does not depend on the CPU count of the machine):
+// It reads two numbers from `tsc --extendedDiagnostics --checkers 1`. One checker makes the
+// count independent of the CPU count of the machine:
 //   1. `testTypes`: the instantiations of `tsc -p tsconfig.test-types.json`.
 //   2. `perRoute`: the instantiations of each route in a generated fixture that matches the README
 //      "Scaling" setup: 50 routers with 2 routes each, every route with path params, a JSON body or
 //      response, `handle`, and an `onError` arm. The figure is
-//      (fixture - baseline) / routes, where the baseline is the same file with no routers.
-// The fixture is written under `node_modules/.cache/type-budget/` at run time and is not committed.
+//      (fixture - baseline) / routes. The baseline is the same file with no routers.
+// The script writes the fixture under `node_modules/.cache/type-budget/` at run time.
 // `--update` rewrites the budget file: the current values, the date, and each max at current + 10%.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -154,8 +154,8 @@ function writeFixture(name: string, routers: number): string {
 }
 
 function readBudget(): Budget {
-  // SAFETY: the budget file is committed and written by `--update` from a `Budget` value; the
-  // two maxes this script reads are checked below.
+  // SAFETY: `--update` writes the budget file from a `Budget` value. The code below makes sure
+  // that the two maxes are numbers.
   const budget = JSON.parse(readFileSync(BUDGET_PATH, 'utf8')) as Budget;
 
   if (!Number.isFinite(budget.testTypes?.max) || !Number.isFinite(budget.perRoute?.max)) {

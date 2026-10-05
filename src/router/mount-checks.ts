@@ -15,51 +15,40 @@ import {
 
 /** What a built router tells the parent that mounts it. */
 type BuiltRouter = {
-  /** The context segment where the parent mounts the router. */
   readonly segment: string;
   /** `true` when the context or a descendant has middlewares, such as a `.bind()` loader. */
   readonly ownMiddlewares: boolean;
   /** `METHOD /full/path` of each route of the router and of its children. */
   readonly routes: readonly string[];
-  /** The keys in `routes` of the routes that a `defineRoute` of the subtree declared. */
+  /** The keys in `routes` that a `defineRoute` of the subtree declared. */
   readonly declared: readonly string[];
 };
 
-/** The record of each built app, keyed by the app that the thunk returns. */
 const BUILT = new WeakMap<OpenAPIHono, BuiltRouter>();
 
-/** Where a route key came from, for the error message. */
 type Source = 'route' | 'child';
 
-/** A route key and where it came from. */
 type Declared = { readonly key: string; readonly source: Source };
 
-/** A child as the order check reads it: its record and the routes that its app serves. */
 type MountedChild = BuiltRouter & { readonly entries: readonly RouteEntry[] };
 
 type RouterChecks = {
   readonly caller: RouterCaller;
-  /** The router that the callback received. Its `defineRoute` records the routes. */
+  /** The router that the callback received. */
   readonly router: OpenAPIHono;
   /** The app that the thunk returns. The parent reads the record of this app. */
   readonly app: OpenAPIHono;
   readonly fullPath: string;
   readonly segment: string;
   readonly ownMiddlewares: boolean;
-  /** The apps of the children, in mount order. */
   readonly children: readonly OpenAPIHono[];
 };
 
 /**
- * Checks a router after it mounts its children, and records it for its parent. It throws a
+ * Runs after a router mounts its children, and records the router for its parent. Throws a
  * `TypeError` when two routes have the same method and full path (param names do not count),
- * or when a child with a param segment comes before a sibling whose routes it gets (see
- * {@link assertChildOrder}).
- *
- * The duplicate check reads the routes that `app.openapi` of each router registers (see
- * {@link registeredRoutes}). On a router maker without options, this includes a
- * `createRoute` config. A route registered on another app, or a raw route such as
- * `app.get()`, is not checked.
+ * or when a param child gets the requests of a later sibling (see {@link assertChildOrder}).
+ * Limit: a raw route such as `app.get()` is not part of the duplicate check.
  */
 export const checkRouter = (checks: RouterChecks) => {
   const { caller, fullPath } = checks;
@@ -107,11 +96,9 @@ export const checkRouter = (checks: RouterChecks) => {
   });
 };
 
-/** The key of a declared route, with the path that zod-openapi registers in Hono. */
 const declaredKey = (fullPath: string, segment: string, route: RouteConfig): string =>
   routeKey(route.method, routeJoin(fullPath, segment, toHonoPath(route.path)));
 
-/** Every route and middleware that a child app serves, with full paths. */
 const servedRoutes = (child: OpenAPIHono, fullPath: string): RouteEntry[] =>
   inspectRoutes(child).map(({ method, path, isMiddleware }) => ({
     method,
@@ -139,7 +126,6 @@ const duplicate = (caller: RouterCaller, previous: Declared, next: Declared) => 
         ? `the callback and a child both declare ${route}`
         : `the callback declares ${route}${same ? ' twice' : ''}`;
 
-  // Different param names give two client keys, but Hono serves both paths with the first route.
   const why = same
     ? 'The client type of that path can become never'
     : 'Hono gives every request to the first route';
@@ -150,16 +136,12 @@ const duplicate = (caller: RouterCaller, previous: Declared, next: Declared) => 
 };
 
 /**
- * Throws when a child with a param segment, such as `'/:id'`, is mounted before a sibling
- * with a literal segment, such as `'/stats'`, and gets a request of that sibling. Hono matches
- * in registration order, so the request runs the code of the param child.
+ * Throws when a param child (`'/:id'`) comes before a literal sibling (`'/stats'`) and gets a
+ * request of that sibling. Hono matches in registration order.
  *
- * A route or middleware of the param child gets a request of a sibling route when its path
- * matches the path of the sibling route and the methods are the same (`HEAD` counts as `GET`,
- * `ALL` counts as every method). When the param child or a descendant has middlewares that
- * run for every method (`.bind()`, `.middleware()`, `app.use()`), or a route that its
- * `defineRoute` did not declare (such as a raw `app.get()`), every sibling route under the
- * segment counts.
+ * A route of the param child gets the request when the path and the method match (`HEAD`
+ * counts as `GET`, `ALL` as each method). If the param child has middlewares or a route that
+ * no `defineRoute` declared, each sibling route under the segment counts.
  */
 const assertChildOrder = (caller: RouterCaller, built: readonly MountedChild[]) => {
   for (let i = 0; i < built.length; i++) {
@@ -179,7 +161,7 @@ const assertChildOrder = (caller: RouterCaller, built: readonly MountedChild[]) 
   }
 };
 
-/** The first route of `later` that a request of which `earlier` gets, if any. */
+/** The first route of `later` whose requests `earlier` gets. */
 const collision = (earlier: MountedChild, later: MountedChild): RouteEntry | undefined => {
   const targets = later.entries.filter((entry) => !entry.isMiddleware);
 
@@ -192,11 +174,7 @@ const collision = (earlier: MountedChild, later: MountedChild): RouteEntry | und
   );
 };
 
-/**
- * `true` when the param child runs code that the route-level check does not follow: its
- * context or a descendant has middlewares, an `ALL` middleware is in its app, or its app
- * serves a route that no `defineRoute` of the subtree declared.
- */
+/** `true` when the param child runs code that the check of each route cannot follow. */
 const opaque = (child: MountedChild): boolean => {
   if (child.ownMiddlewares) return true;
 
@@ -211,9 +189,8 @@ const opaque = (child: MountedChild): boolean => {
 const PARAM = /^:[^{?]+(?:{(.*)})?\??$/;
 
 /**
- * `true` when the segment `earlier` matches a request for the segment `later` in at least
- * one part where `later` is a literal: each part of `earlier` is a param that matches the
- * part of `later`, or the same literal. Only the parts that both segments have count.
+ * `true` when a param part of `earlier` matches a literal part of `later`, and the other
+ * parts match. Only the parts that both segments have count.
  */
 const shadows = (earlier: string, later: string): boolean => {
   const [e, l] = [pathParts(earlier), pathParts(later)];

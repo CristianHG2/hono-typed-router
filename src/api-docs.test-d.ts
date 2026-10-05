@@ -1,7 +1,7 @@
-// The docs/api.md examples, inlined as type-level code so `test:types` catches doc drift.
-// `pnpm check:docs` requires each api.md ```ts block to appear here verbatim (after
-// normalization); signature-only blocks are marked `<!-- doc-check: skip -->` in api.md.
-// Setup and stubs sit before each block, never inside it. Nothing here runs.
+// The docs/api.md examples as type-level code. `test:types` compiles them, and nothing here runs.
+// `pnpm check:docs` finds each api.md ```ts block here after normalization.
+// Setup and stubs go before each block, never inside it.
+// api.md marks the signature-only blocks as skipped.
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi';
 import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
@@ -161,7 +161,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   expectTypeOf<keyof typeof twice.vars>().toEqualTypeOf<'session'>();
 
-  // `NoRedeclare` also rejects a redeclared interface on an inline middleware.
+  // `NoRedeclare` also rejects a redeclared var on an inline middleware.
   // @ts-expect-error Cannot redeclare existing var: session
   apiContext.middleware<SessionVars>(async (_c, next) => {
     await next();
@@ -400,11 +400,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(client.api.things.stats.$get).toBeFunction();
   expectTypeOf(client.api.things[':id'].$delete).toBeFunction();
 
-  // Without `as const`, a children array variable is a compile error.
   const plainChildren = [statsRouter, thingByIdRouter];
   // @ts-expect-error Pass children inline or as const: a children array variable has one element type, and the app type can lose the routes of some children
   makeRouter(thingsContext, () => {}, plainChildren);
-  // A one-element array variable is also flagged. Pass it inline.
+  // A one-element array variable is also an error.
   const oneChild = [statsRouter];
   // @ts-expect-error Pass children inline or as const
   makeRouter(thingsContext, () => {}, oneChild);
@@ -562,7 +561,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     ),
   );
 
-  // The handler map is exhaustive.
   // @ts-expect-error `Legacy` has no handler
   matchErrors([CartNotFound, Legacy], {
     CartNotFound: () => rethrow(),

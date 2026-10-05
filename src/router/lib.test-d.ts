@@ -25,8 +25,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// The deprecated `route` key holds the same function type as `defineRoute`, and the 1.0
-// destructuring `({ router, route })` still compiles and declares routes.
+// The deprecated `route` key has the type of `defineRoute`, and `({ router, route })`
+// compiles and declares routes.
 {
   const ctx = defineRootContext('/api', []);
   createRouter({ routeDefaults: { tags: ['api'] } })(ctx, (options) => {
@@ -37,7 +37,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     return undefined;
   });
 
-  // The deprecated `router` key, on purpose: it holds the same app as `app`.
+  // The deprecated `router` key holds the same app as `app`.
   const app = createRouter()(ctx, ({ router, route }) =>
     router.openapi(route('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ ok: true }, 200),
@@ -47,7 +47,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(app).toExtend<OpenAPIHono<any, { '/api': any }, any>>();
 }
 
-// `makeRouter` result is a thunk producing the callback's return value
+// `makeRouter` returns a thunk that gives the return value of the callback
 {
   const ctx = defineRootContext('/api', []);
   const builder = createRouter()(ctx, () => ({ value: 1 }));
@@ -57,8 +57,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(built).not.toBeAny();
 }
 
-// The parent's mount argument is internal: every thunk's public type takes no parameters,
-// with or without children, and a thunk is still accepted as a child.
+// The mount argument of the parent is internal. The public type of each thunk takes no
+// parameters, and a thunk is accepted as a child.
 {
   const ctx = defineRootContext('/api', []);
   const makeRouter = createRouter();
@@ -70,7 +70,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(child).toMatchTypeOf<() => OpenAPIHono<any, any, any>>();
 }
 
-// A factory that returns nothing yields the router itself from the thunk
+// When the factory returns nothing, the thunk gives the router
 {
   const ctx = defineRootContext('/api', []).middleware<{ user: string }>(async (_c, next) => {
     await next();
@@ -82,7 +82,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(builder()).not.toBeAny();
 }
 
-// A callback that returns the `.openapi()` chain (or anything else) keeps that return type
+// A callback that returns the `.openapi()` chain, or any other value, keeps that return type
 {
   const ctx = defineRootContext('/api', []);
 
@@ -99,8 +99,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 }
 
 // Without children, a callback that returns an app with no typed routes is an error. The
-// usual cause: the routes are registered in separate statements, and the callback returns
-// `app`. Returning nothing is the opt-out; with children, `({ app }) => app` stays legal.
+// usual cause is routes in separate statements and a callback that returns `app`. To opt
+// out, return nothing. With children, `({ app }) => app` is accepted.
 {
   const ctx = defineRootContext('/api', []);
   const makeRouter = createRouter();
@@ -111,7 +111,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<CheckCallbackResult<OpenAPIHono<any, any, any>>>().toEqualTypeOf<unknown>();
   expectTypeOf<CheckCallbackResult<{ custom: true }>>().toEqualTypeOf<unknown>();
 
-  // @ts-expect-error — the callback returns an app with no typed routes
+  // @ts-expect-error the callback returns an app with no typed routes
   makeRouter(ctx, ({ app, defineRoute }) => {
     app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ ok: true }, 200),
@@ -120,7 +120,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     return app;
   });
 
-  // @ts-expect-error — also for `app` returned directly
+  // @ts-expect-error also for `app` returned directly
   makeRouter(ctx, ({ app }) => app);
 
   const nothing = makeRouter(ctx, ({ app, defineRoute }) => {
@@ -141,7 +141,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(parent()).toExtend<OpenAPIHono<any, { '/api/things': any }, any>>();
 }
 
-// Children: the factory must return a router (or nothing); `children` stays optional
+// With children, the factory must return a router or nothing. `children` is optional
 {
   const ctx = defineRootContext('/api', []).middleware<{ user: string }>(async (_c, next) => {
     await next();
@@ -158,10 +158,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(makeRouter(ctx, ({ app }) => app, undefined)()).toEqualTypeOf<Router>();
   expectTypeOf(makeRouter(ctx, ({ app }) => app, maybeChildren)()).toEqualTypeOf<Router>();
 
-  // A factory that returns nothing still accepts children (they mount on the router).
+  // A factory that returns nothing accepts children. They mount on the router.
   expectTypeOf(makeRouter(ctx, () => {}, [child])()).toEqualTypeOf<Router>();
 
-  // Conditional / null returns resolve to the router, matching `result ?? router`.
+  // A conditional or `null` return resolves to the router, as `result ?? router` does.
   const flag = Math.random() > 0.5;
   expectTypeOf(
     makeRouter(ctx, ({ app }) => {
@@ -173,7 +173,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     { x: number } | Router
   >();
 
-  // The destructured options stay typed under the children overload.
   makeRouter(
     ctx,
     ({ app, defineRoute }) => {
@@ -187,10 +186,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     [child],
   );
 
-  // @ts-expect-error — children are mounted on the factory's result, which must be a router
+  // @ts-expect-error children mount on the result of the factory, which must be a router
   makeRouter(ctx, () => ({ not: 'router' }), [child]);
 
-  // Without children a non-router return is still allowed.
+  // Without children, a non-router return is accepted.
   expectTypeOf(makeRouter(ctx, () => ({ not: 'router' as const }))()).toEqualTypeOf<{
     not: 'router';
   }>();
@@ -204,13 +203,11 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   createRouter({ routeDefaults: { responses: { 401: errResponse } } })(ctx, ({ defineRoute }) => {
     const declared = defineRoute('get', { responses: { 200: okResponse } });
 
-    // Both the per-route 200 and the base 401 must be visible on the merged type.
     expectTypeOf(declared.responses).toMatchTypeOf<{
       200: typeof okResponse;
       401: typeof errResponse;
     }>();
 
-    // path / method literals are preserved through the merge.
     expectTypeOf(declared.method).toEqualTypeOf<'get'>();
     expectTypeOf(declared.path).toEqualTypeOf<'/api'>();
 
@@ -218,7 +215,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// Colliding zod schemas at the same merge slot become a `ZodUnion<[A, B]>`
+// Two zod schemas at the same merge slot become a `ZodUnion<[A, B]>`
 {
   const baseSchema = z.object({ code: z.literal('BASE') });
   const routeSchema = z.object({ code: z.literal('ROUTE') });
@@ -252,15 +249,14 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
     expectTypeOf(declared.method).toEqualTypeOf<'post'>();
     expectTypeOf(declared.responses).toMatchTypeOf<{ 200: typeof okResponse }>();
-    // `tags` is not part of the declared input, so it should NOT appear on the type
-    // (the transformer is a runtime-only escape hatch).
+    // `transformRoute` changes only the runtime value, so `tags` is not on the type.
     expectTypeOf<keyof typeof declared>().not.toMatchTypeOf<'tags'>();
 
     return undefined;
   });
 }
 
-// `routeDefaults` + route with different status codes: both keep their exact response types
+// `routeDefaults` and a route with different status codes keep their exact response types
 {
   const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
   const ctx = defineRootContext('/api', []);
@@ -280,7 +276,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   );
 }
 
-// Same status: a base schema and a description-only route entry keep the base schema
+// For the same status, a base schema and a route entry with only a description keep the base schema
 {
   const ctx = defineRootContext('/api', []);
 
@@ -292,17 +288,17 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
       type Merged = (typeof declared)['responses'][200];
 
       expectTypeOf<Merged['content']>().toEqualTypeOf<(typeof okResponse)['content']>();
-      // `defineRoute` infers the config as `const`, so the route's description is a literal.
+      // `defineRoute` infers the config as `const`, so the description is a literal.
       expectTypeOf<Merged['description']>().toEqualTypeOf<'Overridden'>();
 
       app.openapi(declared, (c) => c.json({ ok: true }, 200));
-      // @ts-expect-error — the base schema still applies to the merged 200
+      // @ts-expect-error the base schema applies to the merged 200
       app.openapi(declared, (c) => c.json({ ok: 'no' }, 200));
     },
   );
 }
 
-// `routeDefaults.request.params` + route `request.query`: both validation targets stay typed
+// `routeDefaults.request.params` and a route `request.query` keep both validation targets typed
 {
   const ctx = defineRootContext('/things/:id', []);
 
@@ -324,7 +320,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   );
 }
 
-// Merged arrays are arrays of the element union, not tuples (the runtime dedupes)
+// A merged array is an array of the element union, not a tuple, because the runtime removes duplicates
 {
   const ctx = defineRootContext('/api', []);
 
@@ -335,7 +331,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     });
 
     expectTypeOf(declared.tags).toEqualTypeOf<('api' | 'things')[]>();
-    // @ts-expect-error — no tuple length is promised
+    // @ts-expect-error no tuple length
     const length: 3 = declared.tags.length;
 
     return length;
@@ -355,7 +351,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// A route `security: []` opts out of `routeDefaults.security`; other empty arrays stay additive
+// A route `security: []` opts out of `routeDefaults.security`. Another empty array keeps the defaults
 {
   const ctx = defineRootContext('/api', []);
 
@@ -373,7 +369,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   );
 }
 
-// The deprecated `base` option infers `const TBase` and merges exactly like `routeDefaults`
+// The deprecated `base` option infers `const TBase` and merges as `routeDefaults` does
 {
   const errResponse = jsonResponse(z.object({ error: z.string() }), 'Unauthorized');
   const ctx = defineRootContext('/api', []);
@@ -400,7 +396,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   );
 }
 
-// Hooks receive `RouteMeta` as a second argument; one-argument hooks still type-check
+// Hooks get `RouteMeta` as a second argument. A hook with one argument also compiles
 {
   createRouter({
     transformRoute: (config, meta) => {
@@ -424,7 +420,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// Children carry their route schemas into the parent's type, so `testClient` sees them
+// The route schemas of children go into the type of the parent, so `testClient` sees them
 {
   const thing = z.object({ id: z.string(), name: z.string() });
   const notFound = z.object({ message: z.string() });
@@ -465,7 +461,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     [notes],
   );
 
-  // Parent + two children (one with its own child): every path is on the client.
+  // A parent and two children, one with its own child: each path is on the client.
   const app = makeRouter(root, ({ app }) => app, [things, thingById])();
   const client = testClient(app);
 
@@ -488,24 +484,23 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<Parameters<(typeof client)['api']['things']['$post']>[0]>().toEqualTypeOf<{
     json: { name: string };
   }>();
-  // @ts-expect-error — `param.id` is required
+  // @ts-expect-error `param.id` is required
   void client.api.things[':id'].$get({});
-  // @ts-expect-error — `json.name` is required
+  // @ts-expect-error `json.name` is required
   void client.api.things.$post({ json: {} });
 
-  // Grandchild, mounted through its parent.
+  // A grandchild, mounted through its parent.
   const getNotes = client.api.things[':id'].notes.$get;
   expectTypeOf<Awaited<ReturnType<Awaited<ReturnType<typeof getNotes>>['json']>>>().toEqualTypeOf<{
     ok: boolean;
   }>();
 
-  // A factory returning nothing still exposes the children's routes.
+  // A factory that returns nothing also gives the routes of the children.
   const voidApp = makeRouter(root, () => {}, [things])();
   expectTypeOf<
     Parameters<ReturnType<typeof testClient<typeof voidApp>>['api']['things']['$post']>[0]
   >().toEqualTypeOf<{ json: { name: string } }>();
 
-  // The parent's own routes and the children's routes are merged.
   const withOwn = makeRouter(
     root,
     ({ app, defineRoute }) =>
@@ -520,7 +515,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<WithOwnClient['api']['$get']>().toBeFunction();
   expectTypeOf<WithOwnClient['api']['things']['$post']>().toBeFunction();
 
-  // A curried child (`defineChildContext<typeof parent>()`) is typed at its full path too.
+  // A curried child (`defineChildContext<typeof parent>()`) is typed at its full path.
   const curried = makeRouter(
     defineChildContext<typeof root>()('/curried/:slug'),
     ({ app, defineRoute }) =>
@@ -538,7 +533,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   expectTypeOf<Parameters<typeof getCurried>[0]>().toEqualTypeOf<{ param: { slug: string } }>();
 
-  // A non-const children variable still compiles; a widened array adds no schema.
+  // A non-const children variable compiles. A widened array adds no schema.
   const kids: (() => OpenAPIHono<any, any, any>)[] = [things, thingById];
   const loose = makeRouter(root, ({ app }) => app, kids)();
   expectTypeOf(loose).toEqualTypeOf<OpenAPIHono<{ Variables: {} }>>();
@@ -583,8 +578,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<AppClient['api']['x']['$get']>().toBeFunction();
 }
 
-// A `makeRouter(...)` call nested inline in `children` type-checks, and the grandchild's
-// route is in the schema of the outer router.
+// A `makeRouter(...)` call nested inline in `children` compiles, and the route of the
+// grandchild is in the schema of the outer router.
 {
   const root = defineRootContext('/api', []);
   const things = defineChildContext(root, '/things');
@@ -609,7 +604,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   expectTypeOf<SchemaKeys<typeof routerNested>>().toEqualTypeOf<'/api/things/:id'>();
 
-  // The inner router's own routes are kept too.
+  // The routes of the inner router stay.
   const withOwn = makeRouter(root, ({ app }) => app, [
     makeRouter(
       things,
@@ -645,7 +640,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(testClient(app()).api.$get).toBeFunction();
 }
 
-// The children signature gives the same types as before for every form of `children`.
+// The children signature gives the same types for each form of `children`.
 {
   const root = defineRootContext('/api', []);
   const makeRouter = createRouter();
@@ -665,7 +660,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(makeRouter(root, () => {})).toEqualTypeOf<Plain>();
   expectTypeOf(makeRouter(root, () => {}, [])).toEqualTypeOf<Plain>();
   expectTypeOf(makeRouter(root, () => {}, undefined)).toEqualTypeOf<Plain>();
-  // @ts-expect-error — without children, a callback that returns an app with no routes is an error
+  // @ts-expect-error without children, a callback that returns an app with no routes is an error
   makeRouter(root, viaRouter);
   expectTypeOf(makeRouter(root, viaRouter, [])).toEqualTypeOf<Plain>();
   expectTypeOf(makeRouter(root, viaRouter, undefined)).toEqualTypeOf<Plain>();
@@ -675,7 +670,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(tuple).toEqualTypeOf(makeRouter(root, viaRouter, [child]));
 
   // With explicit type arguments and children, pass the children tuple type as the fourth
-  // type argument. Three explicit type arguments plus `[]` give TS2554.
+  // type argument.
   expectTypeOf(makeRouter<'/api', {}, void, []>(root, () => {}, [])).toEqualTypeOf<Plain>();
   // @ts-expect-error TS2554: three explicit type arguments select the overload without children
   makeRouter<'/api', {}, void>(root, () => {}, []);
@@ -720,17 +715,15 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   expectTypeOf(app).toEqualTypeOf(makeRouter(root, ({ app }) => app, [thingsRouter, byIdRouter])());
 
-  // The app is built: it is not a thunk.
   expectTypeOf(app).toExtend<OpenAPIHono<any, any, any>>();
-  // @ts-expect-error — the app is not a `ChildRouter`
+  // @ts-expect-error the app is not a `ChildRouter`
   makeRouter(root, () => {}, [app]);
 
-  // The vars of the context are in the app's Env.
   type AppEnv = typeof app extends OpenAPIHono<infer E, any, any> ? E : never;
 
   expectTypeOf<AppEnv>().toEqualTypeOf<{ Variables: { userId: string } }>();
 
-  // The children's routes are in the app's Schema, so `testClient` sees them.
+  // The routes of the children are in the Schema of the app, so `testClient` sees them.
   type SchemaKeys<T> = T extends OpenAPIHono<any, infer S, any> ? keyof S : never;
 
   expectTypeOf<SchemaKeys<typeof app>>().toEqualTypeOf<'/api/things' | '/api/things/:id'>();
@@ -745,8 +738,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     name: string;
   }>();
 
-  // An inline nested `makeRouter(...)` call compiles, and the grandchild's route is in the
-  // schema of the app.
+  // A nested inline `makeRouter(...)` call compiles, and the route of the grandchild is in
+  // the schema of the app.
   const nested = mountRouter(root, [makeRouter(things, ({ app }) => app, [byIdRouter])]);
 
   expectTypeOf<SchemaKeys<typeof nested>>().toEqualTypeOf<'/api/things/:id'>();
@@ -763,7 +756,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const kids: (() => OpenAPIHono<any, any, any>)[] = [thingsRouter];
   expectTypeOf(mountRouter(root, kids)).toEqualTypeOf<Plain>();
 
-  // `children` is required.
   // @ts-expect-error TS2554: expected 2 arguments
   mountRouter(root);
 }
@@ -790,7 +782,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
         return c.json({ ok: true }, 200);
       })
       .openapi(put, (c) => {
-        // A declared key keeps its declared type; the missing path keys are strings.
+        // A declared key keeps its declared type. The missing path keys are strings.
         expectTypeOf(c.req.valid('param')).toEqualTypeOf<{ id: number; orgId: string }>();
 
         return c.json({ ok: true }, 200);
@@ -837,7 +829,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     }),
   );
 
-  // An optional param is not added: OpenAPI cannot show it. `c.req.param` reads it.
+  // An optional param is not added, because OpenAPI cannot show it. `c.req.param` reads it.
   makeRouter(defineChildContext(root, '/files/:name?'), ({ app, defineRoute }) => {
     const declared = defineRoute('get', { responses: { 200: okResponse } });
 
@@ -928,7 +920,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   });
 }
 
-// A route middleware factory may return `undefined`
+// A route middleware factory can return `undefined`
 {
   const factory: RouteMiddlewareFactory = (route) => (route.security ? undefined : undefined);
 
@@ -961,7 +953,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     ),
   );
 
-  // The two children collapse to one element type: the routes of one child are lost.
+  // The two children become one element type, so the routes of one child are lost.
   const plain = [statsRouter, byIdRouter];
 
   // @ts-expect-error Pass children inline or as const
@@ -969,7 +961,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // @ts-expect-error Pass children inline or as const
   makeRouter(root, () => {}, plain);
 
-  // Inline, `as const`, and `ChildRouter[]` (the opt-out) pass.
+  // Inline, `as const`, and `ChildRouter[]` (the opt-out) are accepted.
   mountRouter(root, [statsRouter, byIdRouter]);
   const tuple = [statsRouter, byIdRouter] as const;
 
@@ -979,7 +971,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   expectTypeOf(mountRouter(root, optOut)).toEqualTypeOf<OpenAPIHono<{ Variables: {} }>>();
 
-  // An element type that is a union keeps every child, so it passes.
+  // An element type that is a union keeps each child, so it is accepted.
   const union: (typeof statsRouter | typeof byIdRouter)[] = [statsRouter, byIdRouter];
   const app = mountRouter(root, union);
 
@@ -987,8 +979,8 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(testClient(app).api.things[':id'].$delete).toBeFunction();
 }
 
-// Bindings: a context without bindings gives the same app type as before bindings existed. A
-// context with bindings gives `c.env` its bindings in each route handler.
+// A context without bindings gives an app without `Bindings`. A context with bindings types
+// `c.env` in each route handler.
 {
   interface Db {
     query: (sql: string) => string;

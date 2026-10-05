@@ -228,7 +228,7 @@ describe('createRouter', () => {
 
     expect(paths).toEqual(['/api/things', '/api/things/:id']);
 
-    // The same thunk called directly has no parent: meta.path is the curried segment.
+    // Without a parent, meta.path is the curried segment.
     seen.length = 0;
     thingsRouter();
     expect(seen).toEqual(['/things', '/things/:id']);
@@ -277,7 +277,7 @@ describe('createRouter', () => {
     });
 
     makeRouter(defineChildContext(defineRootContext('/', []), '/things'), ({ defineRoute }) => {
-      // `path` is not part of the typed input; a cast is the only way to declare `{param}` here.
+      // The typed input has no `path`, so a cast declares `{param}`.
       defineRoute('get', { path: '/{id}', responses: { 200: okResponse } } as never);
     })();
     makeRouter(defineRootContext('/', []), ({ defineRoute }) => {
@@ -381,7 +381,7 @@ describe('createRouter', () => {
 
     const thingsRouter = makeRouter(things, ({ app, defineRoute }) => {
       for (const path of ['/', '/x']) {
-        // `path` is not part of the typed input; a cast is the only way to declare it here.
+        // The typed input has no `path`, so a cast declares it.
         const r = defineRoute('get', { path, responses: { 200: okResponse } } as never);
         app.openapi(r as never, (c) => c.json({ ok: true }) as never);
       }
@@ -522,8 +522,7 @@ describe('createRouter', () => {
     expect(ext.defineChildRoute).toBe(ext.defineChildContext);
   });
 
-  // This test uses the deprecated names on purpose, so that the aliases stay covered until
-  // 2.0. Do not change it to defineRootContext and defineChildContext.
+  // This test uses the deprecated names on purpose. Do not change them before 2.0.
   it('composes child routers made with the deprecated names, in the value and curried forms', async () => {
     const parent = defineRootRoute('/api', []);
     const valueChild = defineChildRoute(parent, '/things');
@@ -1088,7 +1087,7 @@ describe('mount guard', () => {
     expect(getRouteIdentity(things)).toMatchObject({ parentId: rootId, parentPath: '/api' });
     expect(getRouteIdentity(derived)?.parentId).toBe(rootId);
     expect(getRouteIdentity(derived)?.id).not.toBe(getRouteIdentity(things)?.id);
-    // The identity key is a symbol: it does not show in the context's string keys.
+    // The identity key is a symbol, so it is not in the string keys.
     expect(Object.keys(things)).not.toContain('id');
 
     const app = makeRouter(root, () => {}, [leaf(things)])();
@@ -1331,7 +1330,6 @@ describe('route middleware attaches at openapi', () => {
 
     expect((await registered().request('/things')).status).toBe(200);
 
-    // No route declared: nothing to attach.
     // An app with an `any` schema passes the type check of the callback result.
     expect(makeRouter(things, () => new OpenAPIHono<any, any, any>())).not.toThrow();
 
@@ -1668,7 +1666,7 @@ describe('path params from the context path', () => {
         thingById,
         ({ app, defineRoute }) =>
           void app.openapi(
-            // `MakeRouteFn` does not accept `path`; a cast sets it.
+            // `MakeRouteFn` does not accept `path`, so a cast sets it.
             defineRoute('get', {
               path: '/{sub}',
               responses: { 200: okResponse },
