@@ -1,4 +1,4 @@
-export { defineRootRoute, defineChildRoute } from './lib';
+export { defineRootContext, defineChildContext, defineRootRoute, defineChildRoute } from './lib';
 
 export type {
   RouteContext,
@@ -7,6 +7,8 @@ export type {
   NoRedeclare,
   ContextEnv,
 } from './types';
+
+export type { BindKey, BindLoader, BindParam } from './bind';
 
 export { extendRouteContext } from './extend';
 

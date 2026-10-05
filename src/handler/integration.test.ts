@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { Context } from 'hono';
-import { defineRootRoute } from '../definitions';
+import { defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
 import { createRouter } from '../router';
 import { onError } from '../errors';
@@ -14,11 +14,11 @@ const notFound = jsonResponse(z.object({ message: z.string() }), 'Not found');
 class RecordNotFoundError extends Error {}
 
 const buildRouter = (shouldThrow: boolean) => {
-  const ctx = defineRootRoute('/api', []);
+  const ctx = defineRootContext('/api', []);
 
-  return createRouter()(ctx, ({ router, defineRoute }) => {
+  return createRouter()(ctx, ({ app, defineRoute }) => {
     const r = defineRoute('get', { responses: { 200: okResponse, 404: notFound } });
-    router.openapi(
+    app.openapi(
       r as never,
       ((c: Context) =>
         handle(c, async () => {
@@ -31,8 +31,6 @@ const buildRouter = (shouldThrow: boolean) => {
           onError(RecordNotFoundError, (_e, ec) => ec.json({ message: 'Not found' }, 404)),
         ])) as never,
     );
-
-    return router;
   })();
 };
 

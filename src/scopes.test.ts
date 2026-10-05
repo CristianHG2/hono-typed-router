@@ -1,6 +1,7 @@
+import { expectTypeOf } from 'expect-type';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineRootRoute } from './definitions';
+import { defineRootContext } from './definitions';
 import { jsonResponse } from './factories';
 import { createRouter } from './router';
 import { createScopeMiddleware } from './scopes';
@@ -12,7 +13,7 @@ const buildApp = (
   security: { oauth2: string[] }[] | undefined,
   onForbidden?: (missing: string[]) => unknown,
 ) => {
-  const ctx = defineRootRoute('/api', []);
+  const ctx = defineRootContext('/api', []);
 
   const makeRouter = createRouter({
     routeMiddleware: createScopeMiddleware({
@@ -24,8 +25,6 @@ const buildApp = (
   return makeRouter(ctx, ({ router, defineRoute }) => {
     const r = defineRoute('get', { security, responses: { 200: okResponse } });
     router.openapi(r as never, (c) => c.json({ ok: true }) as never);
-
-    return router;
   })();
 };
 
@@ -58,10 +57,21 @@ describe('createScopeMiddleware', () => {
     expect(await res.json()).toEqual({ code: 'NOPE', need: ['admin'] });
   });
 
-  it('is a no-op for routes without security', async () => {
+  it('registers no middleware for routes without scopes', async () => {
     const app = buildApp([], undefined);
     const res = await app.request('/api');
     expect(res.status).toBe(200);
+
+    const factory = createScopeMiddleware({ resolve: () => [] });
+    const meta = { path: '/' };
+
+    const route = (security?: Record<string, string[]>[]) =>
+      ({ method: 'get', path: '/', responses: {}, security }) as never;
+
+    expect(factory(route(), meta)).toBeUndefined();
+    expect(factory(route([]), meta)).toBeUndefined();
+    expect(factory(route([{ bearer: [] }]), meta)).toBeUndefined();
+    expect(factory(route([{ bearer: ['a'] }]), meta)).toBeTypeOf('function');
   });
 
   it('deduplicates required scopes across security entries', async () => {
@@ -82,12 +92,69 @@ describe('createScopeMiddleware', () => {
 
     const meta = { path: '/' };
 
-    expect(factory(route([{ oauth2: ['things.read', 'things.write'] }]), meta).name).toBe(
+    expect(factory(route([{ oauth2: ['things.read', 'things.write'] }]), meta)?.name).toBe(
       'requireScopes:things.read+things.write',
     );
-    expect(factory(route([{ oauth2: ['has space', 'f(x)'] }]), meta).name).toBe(
+    expect(factory(route([{ oauth2: ['has space', 'f(x)'] }]), meta)?.name).toBe(
       'requireScopes:has_space+f_x_',
     );
-    expect(factory(route(), meta).name).toBe('requireScopes');
+  });
+
+  it('types `c.var` in `resolve` and `onForbidden` from a type argument or a context', async () => {
+    type Session = { userId: string; scopes: string[] };
+
+    const root = defineRootContext('/api').middleware<{ session: Session }>(async (c, next) => {
+      c.set('session', { userId: 'u1', scopes: ['read'] });
+      await next();
+    });
+
+    const fromTypeArgument = createScopeMiddleware<{ session: Session }>({
+      resolve: (c) => {
+        expectTypeOf(c.var.session).toEqualTypeOf<Session>();
+
+        return c.var.session.scopes;
+      },
+      onForbidden: (missing, c) => ({ user: c.var.session.userId, missing }),
+    });
+
+    const fromContext = createScopeMiddleware(root, {
+      resolve: (c) => {
+        expectTypeOf(c.var.session).toEqualTypeOf<Session>();
+
+        return c.var.session.scopes;
+      },
+      onForbidden: (missing, c) => ({ user: c.var.session.userId, missing }),
+    });
+
+    createScopeMiddleware(root, {
+      // @ts-expect-error Property 'sesion' does not exist. Did you mean 'session'?
+      resolve: (c) => c.var.sesion.scopes,
+    });
+
+    // @ts-expect-error without a type argument or a context, `c.var` has no vars
+    createScopeMiddleware({ resolve: (c) => c.var.session.scopes });
+
+    const responses = await Promise.all(
+      [fromTypeArgument, fromContext].map((routeMiddleware) => {
+        const app = createRouter({ routeMiddleware })(root, ({ router, defineRoute }) => {
+          const r = defineRoute('get', {
+            security: [{ bearer: ['write'] }],
+            responses: { 200: okResponse },
+          });
+
+          router.openapi(r as never, (c) => c.json({ ok: true }) as never);
+        })();
+
+        return app.request('/api');
+      }),
+    );
+
+    for (const res of responses) expect(res.status).toBe(403);
+
+    const bodies = await Promise.all(responses.map((res) => res.json()));
+    expect(bodies).toEqual([
+      { user: 'u1', missing: ['write'] },
+      { user: 'u1', missing: ['write'] },
+    ]);
   });
 });

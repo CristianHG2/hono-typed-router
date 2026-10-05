@@ -2,7 +2,7 @@ import { expectTypeOf } from 'expect-type';
 import { z } from 'zod';
 import type { Context } from 'hono';
 import { createRouter } from '../router';
-import { defineRootRoute } from '../definitions';
+import { defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
 import { handle } from '../handler';
 import { matchErrors, onError, rethrow } from './lib';
@@ -60,12 +60,20 @@ class SameTagAsCart extends Error {
   );
 }
 
-// No extra keys: a key with no matching class is a compile error.
+// No extra keys: a key with no matching class is a compile error. The message names the
+// key and the listed tags.
 {
   matchErrors([CartNotFound], {
     CartNotFound: () => 'nf',
-    // @ts-expect-error — no class in the list has the tag `Nope`
+    // @ts-expect-error — "Nope" is not the tag of a listed class. The tags are: CartNotFound
     Nope: () => 'nope',
+  });
+
+  // A misspelled tag: the error is on the misspelled key.
+  matchErrors([CartNotFound, OutOfStock], {
+    CartNotFound: () => 'nf',
+    // @ts-expect-error — "OutOfStok" is not the tag of a listed class. The tags are: CartNotFound, OutOfStock
+    OutOfStok: () => 'oos',
   });
 }
 
@@ -131,7 +139,7 @@ const ok = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
 const notFound = jsonResponse(z.object({ message: z.string() }), 'Not Found');
 
-const ctx = defineRootRoute('/api', []);
+const ctx = defineRootContext('/api', []);
 
 // Inside `router.openapi`: declared statuses type-check, an undeclared one does not.
 createRouter()(ctx, ({ router, defineRoute }) => {
@@ -159,6 +167,4 @@ createRouter()(ctx, ({ router, defineRoute }) => {
       }),
     ),
   );
-
-  return router;
 });

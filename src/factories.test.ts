@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineRootRoute } from './definitions';
+import { defineRootContext } from './definitions';
 import {
   emptyResponse,
   jsonBody,
@@ -16,15 +16,13 @@ import { createRouter } from './router';
 const Body = z.object({ name: z.string() });
 
 const buildApp = () =>
-  createRouter()(defineRootRoute('/api', []), ({ router, defineRoute }) => {
+  createRouter()(defineRootContext('/api', []), ({ app, defineRoute }) => {
     const r = defineRoute('post', {
       request: jsonRequest(Body, 'Create'),
       responses: { 200: jsonResponse(z.object({ got: z.unknown() }), 'OK') },
     });
 
-    router.openapi(r as never, (c) => c.json({ got: c.req.valid('json' as never) }) as never);
-
-    return router;
+    app.openapi(r as never, (c) => c.json({ got: c.req.valid('json' as never) }) as never);
   })();
 
 describe('jsonRequest', () => {

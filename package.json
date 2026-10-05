@@ -1,7 +1,7 @@
 {
   "name": "hono-typed-router",
   "version": "1.0.0",
-  "description": "Path-typed router builder for Hono with composable middleware contexts and per-route policy hooks.",
+  "description": "Path-typed router builder for Hono and @hono/zod-openapi, with typed middleware contexts and route middleware factories.",
   "keywords": [
     "hono",
     "router",
@@ -66,16 +66,18 @@
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "check": "pnpm typecheck && pnpm test:types && pnpm lint && pnpm fmt:check && pnpm test",
+    "check:docs": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/check-doc-blocks.ts",
+    "check:type-budget": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/type-budget.ts",
+    "check": "pnpm typecheck && pnpm test:types && pnpm check:docs && pnpm lint && pnpm fmt:check && pnpm test",
     "prepare": "lefthook install || true",
     "changeset": "changeset",
     "changeset:version": "changeset version",
     "changeset:publish": "pnpm build && changeset publish"
   },
   "peerDependencies": {
-    "@hono/zod-openapi": "^1.1.5",
+    "@hono/zod-openapi": "^1.6.2",
     "hono": "^4.12.4",
-    "zod": "^4.0.0"
+    "zod": "^4.1.0"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

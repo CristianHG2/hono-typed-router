@@ -2,12 +2,16 @@ import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 /**
- * Sentinel returned by an error arm's handler to decline the error and let the
- * next matching arm (or the surrounding `throw`) take over. Compared by identity.
+ * Sentinel that `rethrow()` returns, compared by identity. It is exported so that the
+ * declaration emit of a consumer can name its `unique symbol` type.
+ * @deprecated Return rethrow() from the arm. Removed in 2.0.
  */
 export const RETHROW: unique symbol = Symbol('RETHROW');
 
+/** The type of the value that `rethrow()` returns. */
 export type Rethrow = typeof RETHROW;
+
+const RETHROW_SENTINEL: Rethrow = RETHROW;
 
 /**
  * A single error-handling branch: match errors that are `instanceof ctor`, then
@@ -33,8 +37,8 @@ export const onError = <TErr extends Error, TResult>(
 /** @deprecated Use {@link onError}. Removed in 2.0. */
 export const on = onError;
 
-/** Returns the {@link RETHROW} sentinel from inside an arm handler. */
-export const rethrow = (): Rethrow => RETHROW;
+/** Declines the error from an arm: the next matching arm runs, or the error is rethrown. */
+export const rethrow = (): Rethrow => RETHROW_SENTINEL;
 
 /** Convenience arm handler: respond with `{ message }` at the given status. */
 export const genericErrorHandler =
@@ -42,21 +46,62 @@ export const genericErrorHandler =
   (err: Error, c: Context) =>
     c.json({ message: err.message }, statusCode);
 
-/** Any error arm, whatever error it matches and response it produces. */
+/**
+ * Any error arm, whatever error it matches and response it produces.
+ *
+ * @internal Exported for declaration emit; not part of the public API.
+ */
 export type AnyArm = ErrorArm<any, any>;
 
 // `async () => rethrow()` widens the sentinel to `symbol`, so the whole primitive is excluded.
 type ArmResponse<TArm> =
   TArm extends ErrorArm<any, infer TResult> ? Exclude<Awaited<TResult>, symbol> : never;
 
-/** Union of the response types produced by a tuple of arms (sans `Rethrow`). */
+/**
+ * Union of the response types produced by a tuple of arms (sans `Rethrow`).
+ *
+ * @internal Exported for declaration emit; not part of the public API.
+ */
 export type ArmsResponse<TArms extends ReadonlyArray<AnyArm>> = ArmResponse<TArms[number]>;
+
+/**
+ * Runs the handler of an arm. If the handler throws an `Error` that has no `cause`, the
+ * original error becomes its `cause`, so the error log shows both errors. A frozen or sealed
+ * error, or one whose `cause` cannot be set, is rethrown unchanged. A module-level singleton
+ * error keeps the `cause` of its first throw.
+ */
+const runArm = async (
+  arm: AnyArm,
+  err: Error,
+  c: Context,
+): Promise<Awaited<ReturnType<AnyArm['handle']>>> => {
+  try {
+    return await arm.handle(err, c);
+  } catch (thrown) {
+    if (
+      thrown instanceof Error &&
+      thrown !== err &&
+      thrown.cause === undefined &&
+      Object.isExtensible(thrown)
+    ) {
+      try {
+        thrown.cause = err;
+      } catch {
+        // A setter or a non-writable `cause` on the prototype rejects the value. Rethrow the
+        // error that the handler threw, not this one.
+      }
+    }
+
+    throw thrown;
+  }
+};
 
 /**
  * Runs `body()` and, if it throws an `Error`, dispatches to the first matching
  * arm (by `instanceof`). Arms are tried in order; an arm returning `rethrow()`
  * falls through to the next. If no arm matches (or all rethrow), the error is
- * rethrown. Non-`Error` throws bypass the arms entirely.
+ * rethrown. Non-`Error` throws bypass the arms entirely. An `Error` that an arm handler
+ * throws gets the original error as its `cause`, if it has no `cause`.
  *
  * The return type is `TBody` widened with every arm's response type (minus the
  * `Rethrow` sentinel), so callers see the full set of responses the route can
@@ -76,9 +121,9 @@ export const handleErrors = async <TBody, const TArms extends ReadonlyArray<AnyA
 
     for (const arm of arms) {
       if (err instanceof arm.ctor) {
-        const result = await arm.handle(err, c);
+        const result = await runArm(arm, err, c);
 
-        if (result === RETHROW) {
+        if (result === RETHROW_SENTINEL) {
           continue;
         }
 
@@ -90,7 +135,9 @@ export const handleErrors = async <TBody, const TArms extends ReadonlyArray<AnyA
   }
 };
 
-/** An `Error` subclass constructor that `matchErrors` can dispatch on. */
+/**
+ * An `Error` subclass constructor that `matchErrors` can dispatch on.
+ */
 export type ErrorCtor = new (...args: any[]) => Error;
 
 // A tag must be a string literal: `string` itself (e.g. `Error.prototype.name`) does not count.
@@ -104,6 +151,8 @@ type NameTag<TErr> = TErr extends { readonly name: infer T } ? LiteralTag<T> : n
  * The handler key of an error class: its instance's string-literal `_tag`, else its
  * string-literal `name` (declare it as `override readonly name = 'X' as const`), else
  * `never` (and `matchErrors` rejects the class).
+ *
+ * @internal Exported for declaration emit; not part of the public API.
  */
 export type ErrorTag<TCtor extends ErrorCtor> = TCtor extends ErrorCtor
   ? [UnderscoreTag<InstanceType<TCtor>>] extends [never]
@@ -137,6 +186,8 @@ type CheckErrorCtors<TCtors extends readonly ErrorCtor[]> = {
 /**
  * One handler per error class, keyed by its {@link ErrorTag}. Every key is required and no
  * other key is allowed. A handler has the same shape as an {@link onError} handler.
+ *
+ * @internal Exported for declaration emit; not part of the public API.
  */
 export type MatchHandlers<TCtors extends readonly ErrorCtor[]> = {
   readonly [TCtor in TCtors[number] as ErrorTag<TCtor>]: (
@@ -145,8 +196,22 @@ export type MatchHandlers<TCtors extends readonly ErrorCtor[]> = {
   ) => any;
 };
 
+// The tags of a class tuple, in order, joined by `, `. A union in a template literal type
+// gives one string per member, so the tuple is walked instead.
+type JoinTags<TCtors extends readonly unknown[]> = TCtors extends readonly [
+  infer THead extends ErrorCtor,
+  ...infer TRest,
+]
+  ? TRest extends readonly []
+    ? `${ErrorTag<THead>}`
+    : `${ErrorTag<THead>}, ${JoinTags<TRest>}`
+  : string;
+
+// A key that is not a listed tag gets a message type, so the error names the valid tags.
 type NoExtraKeys<TCtors extends readonly ErrorCtor[], THandlers> = {
-  readonly [K in Exclude<keyof THandlers, ErrorTag<TCtors[number]>>]: never;
+  readonly [
+    K in Exclude<keyof THandlers, ErrorTag<TCtors[number]>>
+  ]: `"${K & string}" is not the tag of a listed class. The tags are: ${JoinTags<TCtors>}`;
 };
 
 type HandlerResponse<THandler> = THandler extends (...args: any[]) => infer TResult
@@ -218,12 +283,12 @@ export const matchErrors = <
       // rethrow falls past the rest of this tuple instead of re-running the same handler.
       // The handler is picked by the error's tag, not by this arm's index.
       if (ctors.findIndex((candidate) => err instanceof candidate) !== index) {
-        return RETHROW;
+        return RETHROW_SENTINEL;
       }
 
       const handler = resolve(err);
 
-      return handler === undefined ? RETHROW : handler(err, c);
+      return handler === undefined ? RETHROW_SENTINEL : handler(err, c);
     }),
   );
 

@@ -1,5 +1,13 @@
 import type { MiddlewareHandler } from 'hono';
-import type { DefineChildRouteFn, DefineRootRouteFn, ParentContext, RouteContext } from './types';
+import { createBindMiddleware } from './bind';
+import type { BindLoader } from './bind';
+import { assertHonoPath } from './path';
+import type {
+  DefineChildContextFn,
+  DefineRootContextFn,
+  ParentContext,
+  RouteContext,
+} from './types';
 
 /**
  * Internal identity of a context. `makeRouter` uses it to check that a value-form child is
@@ -41,6 +49,18 @@ function createRouteContext<TPath extends string, TVars extends object>(
   const id = Symbol(path);
   const identity: RouteIdentity = { id, lineage: [...sourceLineage, id], ...parent };
 
+  // The new context keeps the parent link but gets a new id, because it is a distinct
+  // context. Its lineage extends this context's lineage, so children of this context can
+  // mount under it.
+  const middleware = (handler: MiddlewareHandler) =>
+    createRouteContext<TPath, TVars>(
+      path,
+      [...middlewares, handler],
+      segment,
+      parent,
+      identity.lineage,
+    );
+
   // SAFETY: the `IDENTITY` key is internal and not part of the public `RouteContext` type.
   return {
     path,
@@ -51,18 +71,27 @@ function createRouteContext<TPath extends string, TVars extends object>(
     [IDENTITY]: identity,
 
     // SAFETY: the generic `middleware` only widens `TVars` at the type level; at runtime it
-    // appends the handler, which is all this implementation does. The new context keeps the
-    // parent link but gets a new id, because it is a distinct context. Its lineage extends
-    // this context's lineage, so children of this context can mount under it.
-    middleware: ((handler: MiddlewareHandler) => {
-      return createRouteContext(path, [...middlewares, handler], segment, parent, identity.lineage);
-    }) as RouteContext<TPath, TVars>['middleware'],
+    // appends the handler, which is all this implementation does.
+    middleware: middleware as RouteContext<TPath, TVars>['middleware'],
+
+    // SAFETY: `bind` only widens `TVars` at the type level; at runtime it appends the
+    // middleware of `createBindMiddleware` through `middleware`, so it gets the same identity.
+    bind: (<TValue>(key: string, param: string, load: BindLoader<object, TValue>) =>
+      middleware(createBindMiddleware(key, param, load))) as RouteContext<TPath, TVars>['bind'],
   } as RouteContext<TPath, TVars>;
 }
 
-export const defineRootRoute: DefineRootRouteFn = (path, middlewares) => {
+// SAFETY: erased implementation of both `DefineRootContextFn` signatures. The vars type is a
+// phantom, so both return the same runtime context. The parameters are annotated because an
+// overloaded contextual type does not type them.
+export const defineRootContext = ((path: string, middlewares: MiddlewareHandler[] = []) => {
+  assertHonoPath('defineRootContext', path);
+
   return createRouteContext(path, middlewares);
-};
+}) as DefineRootContextFn;
+
+/** @deprecated Use defineRootContext. Removed in 2.0. */
+export const defineRootRoute = defineRootContext;
 
 /**
  * Runtime twin of `ChildPath`: joins with exactly one `/`. A parent `'/'` (or trailing `/`)
@@ -77,17 +106,31 @@ export const joinChildPath = (parentPath: string, path: string): string => {
   return path === '' || path.startsWith('/') ? `${parentPath}${path}` : `${parentPath}/${path}`;
 };
 
-// SAFETY: erased implementation of both `DefineChildRouteFn` overloads. The value form
+// SAFETY: erased implementation of both `DefineChildContextFn` overloads. The value form
 // returns a context whose runtime `path` is the full path its type promises, with the
 // relative `segment` for mounting. The curried form keeps the runtime path relative (the
 // parent's basePath applies when the child is mounted) while its type is the full path;
 // nothing reads that runtime value before mounting. Parent middlewares are not copied
 // in either form: mounting under the parent router runs them. Only the value form links
-// the child to its parent's identity (see `RouteIdentity`).
-export const defineChildRoute = ((...args: [] | [ParentContext, string]) =>
-  args.length === 0
-    ? (path: string) => createRouteContext(path, [])
-    : createRouteContext(joinChildPath(args[0].path, args[1]), [], args[1], {
-        parentId: getRouteIdentity(args[0])?.id,
-        parentPath: args[0].path,
-      })) as DefineChildRouteFn;
+// the child to its parent's identity (see `RouteIdentity`). Both forms check the segment
+// with `assertHonoPath`; the parent path was checked when the parent was defined.
+export const defineChildContext = ((...args: [] | [ParentContext, string]) => {
+  if (args.length === 0) {
+    return (path: string) => {
+      assertHonoPath('defineChildContext', path);
+
+      return createRouteContext(path, []);
+    };
+  }
+
+  const [parent, segment] = args;
+  assertHonoPath('defineChildContext', segment);
+
+  return createRouteContext(joinChildPath(parent.path, segment), [], segment, {
+    parentId: getRouteIdentity(parent)?.id,
+    parentPath: parent.path,
+  });
+}) as DefineChildContextFn;
+
+/** @deprecated Use defineChildContext. Removed in 2.0. */
+export const defineChildRoute = defineChildContext;

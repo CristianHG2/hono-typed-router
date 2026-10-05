@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'hono';
-import { handleErrors, matchErrors, on, onError, rethrow } from './lib';
+import { RETHROW, handleErrors, matchErrors, on, onError, rethrow } from './lib';
 
 const makeContext = () => {
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));
@@ -16,8 +16,8 @@ class FooError extends Error {
 }
 
 class BarError extends Error {
-  constructor(message = 'bar') {
-    super(message);
+  constructor(message = 'bar', options?: ErrorOptions) {
+    super(message, options);
     this.name = 'BarError';
   }
 }
@@ -77,7 +77,10 @@ describe('handleErrors', () => {
 
   it('tries the next arm when an arm returns RETHROW', async () => {
     const c = makeContext();
-    const first = vi.fn(() => rethrow());
+    // `RETHROW` is deprecated. This test uses it on purpose, to check that the deprecated
+    // export is still the sentinel that `rethrow()` returns. Use `rethrow()` in new code.
+    expect(RETHROW).toBe(rethrow());
+    const first = vi.fn(() => RETHROW);
     const second = vi.fn((_err: FooError, ctx: Context) => ctx.json({ message: 'second' }, 409));
 
     const result = await handleErrors(
@@ -128,6 +131,81 @@ describe('handleErrors', () => {
 
     expect(handle).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ body: { message: 'parent matched' }, status: 400 });
+  });
+
+  it('sets the original error as the cause of an error that an arm handler throws', async () => {
+    const original = new FooError();
+    const thrown = new BarError();
+    const arms = [onError(FooError, () => Promise.reject(thrown))] as const;
+
+    await expect(handleErrors(() => Promise.reject(original), arms, makeContext())).rejects.toBe(
+      thrown,
+    );
+    expect(thrown.cause).toBe(original);
+  });
+
+  it('keeps the cause of a thrown error that has one, and does not chain an error to itself', async () => {
+    const original = new FooError();
+    const earlier = new Error('earlier');
+    const thrown = new BarError('bar', { cause: earlier });
+    const withCause = [onError(FooError, () => Promise.reject(thrown))] as const;
+
+    await expect(
+      handleErrors(() => Promise.reject(original), withCause, makeContext()),
+    ).rejects.toBe(thrown);
+    expect(thrown.cause).toBe(earlier);
+
+    const same = [onError(FooError, (err) => Promise.reject(err))] as const;
+
+    await expect(handleErrors(() => Promise.reject(original), same, makeContext())).rejects.toBe(
+      original,
+    );
+    expect(original.cause).toBeUndefined();
+  });
+
+  it('rethrows a frozen error unchanged and keeps the cause of a singleton error', async () => {
+    const frozen = Object.freeze(new BarError());
+    const throwFrozen = [onError(FooError, () => Promise.reject(frozen))] as const;
+
+    await expect(
+      handleErrors(() => Promise.reject(new FooError()), throwFrozen, makeContext()),
+    ).rejects.toBe(frozen);
+    expect(frozen.cause).toBeUndefined();
+
+    // A `cause` that the prototype makes read-only also rejects the value.
+    class ReadOnlyCauseError extends Error {
+      get cause(): unknown {
+        return undefined;
+      }
+    }
+
+    const readOnly = new ReadOnlyCauseError();
+    const throwReadOnly = [onError(FooError, () => Promise.reject(readOnly))] as const;
+
+    await expect(
+      handleErrors(() => Promise.reject(new FooError()), throwReadOnly, makeContext()),
+    ).rejects.toBe(readOnly);
+
+    // A module-level singleton keeps the cause of its first throw.
+    const singleton = new BarError();
+    const first = new FooError();
+    const throwSingleton = [onError(FooError, () => Promise.reject(singleton))] as const;
+
+    await expect(
+      handleErrors(() => Promise.reject(first), throwSingleton, makeContext()),
+    ).rejects.toBe(singleton);
+    await expect(
+      handleErrors(() => Promise.reject(new FooError()), throwSingleton, makeContext()),
+    ).rejects.toBe(singleton);
+    expect(singleton.cause).toBe(first);
+  });
+
+  it('does not set a cause on a non-Error value that an arm handler throws', async () => {
+    const arms = [onError(FooError, () => throwText())] as const;
+
+    await expect(
+      handleErrors(() => Promise.reject(new FooError()), arms, makeContext()),
+    ).rejects.toBe('text');
   });
 
   it('rethrows non-Error throws without consulting arms', async () => {
@@ -188,6 +266,8 @@ class Ghost extends Error {
 const throwing = (err: unknown) => async () => {
   throw err;
 };
+
+const throwText = throwing('text');
 
 describe('matchErrors', () => {
   it('returns one arm per class, in order', () => {
@@ -365,8 +445,10 @@ describe('matchErrors', () => {
       onError(Error, fallback),
     ];
 
-    await expect(handleErrors(throwing(new CartNotFound()), arms, c)).rejects.toBe(handlerError);
+    const original = new CartNotFound();
+    await expect(handleErrors(throwing(original), arms, c)).rejects.toBe(handlerError);
     expect(fallback).not.toHaveBeenCalled();
+    expect(handlerError.cause).toBe(original);
   });
 
   it('lets non-Error throws bypass the arms', async () => {

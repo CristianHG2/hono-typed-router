@@ -2,11 +2,11 @@ import { expectTypeOf } from 'expect-type';
 import { testClient } from 'hono/testing';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { defineChildRoute, defineRootRoute } from './definitions';
+import { defineChildContext, defineRootContext } from './definitions';
 import { onError } from './errors';
 import { jsonRequest, jsonResponse } from './factories';
 import { handle } from './handler';
-import { createRouter } from './router';
+import { createRouter, mountRouter } from './router';
 import { createScopeMiddleware } from './scopes';
 
 class ThingNotFound extends Error {}
@@ -20,7 +20,7 @@ const Forbidden = z.object({ error: z.string(), message: z.string() });
 type Session = { userId: string; scopes: string[] };
 
 const buildApp = () => {
-  const root = defineRootRoute('/api', []).middleware<{ session: Session }>(async (c, next) => {
+  const root = defineRootContext('/api', []).middleware<{ session: Session }>(async (c, next) => {
     c.set('session', {
       userId: 'u1',
       scopes: (c.req.header('x-scopes') ?? '').split(',').filter(Boolean),
@@ -28,13 +28,13 @@ const buildApp = () => {
     await next();
   });
 
-  const thingsRoute = defineChildRoute(root, '/things');
-  const thingRoute = defineChildRoute(thingsRoute, '/:id');
-  const notesRoute = defineChildRoute(thingRoute, '/notes');
+  const thingsRoute = defineChildContext(root, '/things');
+  const thingRoute = defineChildContext(thingsRoute, '/:id');
+  const notesRoute = defineChildContext(thingRoute, '/notes');
 
   const makeRouter = createRouter({
     routeMiddleware: [
-      createScopeMiddleware({ resolve: (c) => c.var.session.scopes }),
+      createScopeMiddleware(root, { resolve: (c) => c.var.session.scopes }),
       (route) =>
         async function readOnlyMode(c, next) {
           if (route.method !== 'get' && c.req.header('x-read-only') === '1') {
@@ -93,7 +93,12 @@ const buildApp = () => {
     [thing],
   );
 
-  return makeRouter(root, ({ router }) => router, [things])();
+  const app = mountRouter(root, [things]);
+
+  // The short form has the type of the long form.
+  expectTypeOf(app).toEqualTypeOf(makeRouter(root, ({ router }) => router, [things])());
+
+  return app;
 };
 
 describe('testClient', () => {

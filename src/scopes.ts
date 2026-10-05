@@ -2,19 +2,23 @@ import type { Context, MiddlewareHandler } from 'hono';
 import type { RouteConfig } from '@hono/zod-openapi';
 import type { RouteMiddlewareFactory } from './router';
 
-export interface ScopeMiddlewareOptions {
+export interface ScopeMiddlewareOptions<TVars extends object = {}> {
   /**
    * Returns the set of scopes available to the current request. May be sync or async.
-   * Typically reads from a context variable populated by an auth middleware.
+   * Typically reads from a context variable populated by an auth middleware. `c.var` has
+   * the vars `TVars`.
    */
-  resolve: (c: Context) => readonly string[] | Promise<readonly string[]>;
+  resolve: (c: Context<{ Variables: TVars }>) => readonly string[] | Promise<readonly string[]>;
 
   /**
    * Optional error payload customizer. Receives the missing scopes and the context;
    * returns the JSON body to send with the 403 response.
    * Defaults to `{ error: 'E_FORBIDDEN', message: 'Missing <scopes> scope(s)' }`.
    */
-  onForbidden?: (missingScopes: string[], c: Context) => unknown | Promise<unknown>;
+  onForbidden?: (
+    missingScopes: string[],
+    c: Context<{ Variables: TVars }>,
+  ) => unknown | Promise<unknown>;
 }
 
 /**
@@ -22,19 +26,38 @@ export interface ScopeMiddlewareOptions {
  * `security` field. Plug into `createRouter({ routeMiddleware: createScopeMiddleware(...) })`.
  *
  * Scopes are extracted from every entry in `route.security`, flattened across schemes,
- * and deduplicated. If a route has no `security`, the middleware is a no-op.
+ * and deduplicated. A route without scopes gets no middleware: the factory returns
+ * `undefined` for it.
+ *
+ * `TVars` types `c.var` in `resolve` and `onForbidden`:
+ * `createScopeMiddleware<SessionVars>({ resolve: (c) => c.var.session.scopes })`. The vars
+ * are not checked against the contexts of the routes: give the vars that the context
+ * middlewares set before the route middleware runs.
  */
-export const createScopeMiddleware = (options: ScopeMiddlewareOptions): RouteMiddlewareFactory => {
+export function createScopeMiddleware<TVars extends object = {}>(
+  options: ScopeMiddlewareOptions<TVars>,
+): RouteMiddlewareFactory;
+/**
+ * Context form: `TVars` are the vars of `context`, so `resolve` reads them without a type
+ * argument: `createScopeMiddleware(apiContext, { resolve: (c) => c.var.session.scopes })`.
+ * Only the type of `context` is used.
+ */
+export function createScopeMiddleware<TVars extends object>(
+  context: { readonly vars: TVars },
+  options: ScopeMiddlewareOptions<TVars>,
+): RouteMiddlewareFactory;
+export function createScopeMiddleware(
+  ...args: [ScopeMiddlewareOptions] | [unknown, ScopeMiddlewareOptions]
+): RouteMiddlewareFactory {
+  const options = args.length === 1 ? args[0] : args[1];
+
   return (route) => {
     const required = extractRequiredScopes(route);
 
+    // No scopes: no middleware, so the route does not run (or list) a no-op.
+    if (required.length === 0) return;
+
     const middleware: MiddlewareHandler = async (c, next) => {
-      if (required.length === 0) {
-        await next();
-
-        return;
-      }
-
       const available = await options.resolve(c);
       const availableSet = new Set(available);
       const missing = required.filter((scope) => !availableSet.has(scope));
@@ -55,15 +78,14 @@ export const createScopeMiddleware = (options: ScopeMiddlewareOptions): RouteMid
 
     // Name it so `showRoutes` and stack traces show which scopes a route requires. No
     // spaces or parentheses, which stack-trace parsers treat as separators.
-    const name = required.length > 0 ? `requireScopes:${required.join('+')}` : 'requireScopes';
     Object.defineProperty(middleware, 'name', {
-      value: name.replaceAll(/[\s()]/g, '_'),
+      value: `requireScopes:${required.join('+')}`.replaceAll(/[\s()]/g, '_'),
       configurable: true,
     });
 
     return middleware;
   };
-};
+}
 
 const extractRequiredScopes = (route: RouteConfig): string[] => {
   if (!route.security || route.security.length === 0) return [];

@@ -1,5 +1,9 @@
 export { createRouter } from './lib';
 
+export { mountRouter } from './mount';
+
+export type { ChildRouter } from './children';
+
 export type {
   BaseRouteConfig,
   CreateRouterOptions,
@@ -7,7 +11,7 @@ export type {
   FactoryReturn,
   MakeRouteFn,
   MakeRouterFn,
-  RouteHookMeta,
+  RouteMeta,
   RouteMiddlewareFactory,
   RouteConfigMethod,
   InputRouteConfig,
