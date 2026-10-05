@@ -220,6 +220,18 @@ describe("duplicate routes under a child at the segment '/' or ''", () => {
     );
   });
 
+  it("throws when the callback and a route '' of a child at '/' both declare the parent path", async () => {
+    const child = defineChildContext(root, '/');
+
+    expect(parentRoute(root, [routes(child, ['get'], '')])).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api'.",
+    );
+
+    const app = makeRouter(root, () => {}, [routes(child, ['get'], '')])();
+
+    expect(inspectRoutes(app).map((r) => `${r.method} ${r.path}`)).toEqual(['GET /api']);
+  });
+
   it("keeps the trailing slash of a root '/api/' for a child at '/'", async () => {
     const slashRoot = defineRootContext('/api/', []);
     const child = defineChildContext(slashRoot, '/');

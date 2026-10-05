@@ -12,8 +12,9 @@ export type RouteEntry = {
 
 /**
  * Joins a base path and a route path as Hono's `mergePath` does: a route path `'/'` keeps
- * the base as it is, with its trailing slash. Hono routes `'/things'` and `'/things/'`
- * apart, so the keys keep the difference.
+ * the base as it is, with its trailing slash (`'/api/things/'` + `'/'` is `'/api/things/'`,
+ * `'/api'` + `'/'` is `'/api'`). Hono routes `'/things'` and `'/things/'` apart, so the
+ * keys and `meta.path` keep the difference.
  */
 export const honoJoin = (base: string, sub: string): string => {
   const head = base.startsWith('/') ? base : `/${base}`;

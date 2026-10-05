@@ -130,7 +130,9 @@ type RouteWithParams<TPath extends string, TBase, C> = [keyof TBase] extends [ne
 export interface RouteMeta {
   /**
    * The route's full URL path: the router's mount path joined with the route's relative
-   * path (`'/'` gives the mount path itself), in Hono `:param` syntax. It is computed before
+   * path, in Hono `:param` syntax, as Hono registers it. A route path `'/'` gives the mount
+   * path itself and keeps its trailing slash: a child at `'/things/'` under `/api` gives
+   * `/api/things/`, and its route `'/x'` gives `/api/things/x`. It is computed before
    * `transformRoute` runs and is not changed by it. A router mounted as a child (in
    * `makeRouter(context, callback, children)`) gets its parent's full path joined with its
    * own segment, so a mounted router always gets the full path, for value-form and curried

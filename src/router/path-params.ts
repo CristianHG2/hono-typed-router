@@ -1,6 +1,7 @@
 import { z } from '@hono/zod-openapi';
 import type { ParamKeys } from 'hono/types';
 import type { ZodObject, ZodString, ZodType } from 'zod';
+import { honoJoin } from './route-match';
 
 /**
  * The required param keys of a Hono path. An optional `:param?` is not a key: OpenAPI cannot
@@ -100,7 +101,7 @@ type SchemaLike = Pick<ZodType, '_zod'>;
  * added.
  */
 export const withPathParams = <C extends ParamsConfig>(servedPath: string, config: C): C => {
-  const path = joinPath(servedPath, toHonoPath(config.path ?? '/'));
+  const path = honoJoin(servedPath, toHonoPath(config.path ?? '/'));
   const keys = [...path.matchAll(PARAM)].filter(([, , optional]) => optional === undefined);
 
   if (keys.length === 0) return config;
@@ -146,9 +147,11 @@ const isZodObject = (schema: SchemaLike): schema is SchemaLike & ObjectSchema =>
 /** OpenAPI `{param}` segments become Hono `:param` segments (same regex @hono/zod-openapi uses). */
 export const toHonoPath = (path: string): string => path.replaceAll(/\/{(.+?)}/g, '/:$1');
 
-// `'/'` is the context path itself; a root defined as `''` reads as `'/'`.
-export const joinPath = (contextPath: string, routePath: string): string => {
-  const base = contextPath.replace(/\/$/, '');
-
-  return (routePath === '/' ? base : `${base}${routePath}`) || '/';
-};
+/**
+ * The full path that Hono registers for a route of a router, with `honoJoin`. Hono joins
+ * the route path to the router's segment first, and then joins the parent path to the
+ * result. Only a route path `''` changes with this order: under a segment `'/'` or `''`,
+ * it gives the full path of the router (`'/api'`, not `'/api/'`).
+ */
+export const routeJoin = (fullPath: string, segment: string, path: string): string =>
+  honoJoin(fullPath, path === '' && (segment === '/' || segment === '') ? '/' : path);

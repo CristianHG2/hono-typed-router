@@ -366,6 +366,34 @@ describe('createRouter', () => {
     expect(seen).toEqual(['/api']);
   });
 
+  it('keeps the trailing slash of a child segment in meta.path, as Hono serves it', async () => {
+    const root = defineRootContext('/api', []);
+    const things = defineChildContext(root, '/things/');
+    const seen: string[] = [];
+
+    const makeRouter = createRouter({
+      routeMiddleware: (_route, meta) => {
+        seen.push(meta.path);
+
+        return undefined;
+      },
+    });
+
+    const thingsRouter = makeRouter(things, ({ app, defineRoute }) => {
+      for (const path of ['/', '/x']) {
+        // `path` is not part of the typed input; a cast is the only way to declare it here.
+        const r = defineRoute('get', { path, responses: { 200: okResponse } } as never);
+        app.openapi(r as never, (c) => c.json({ ok: true }) as never);
+      }
+    });
+
+    const app = makeRouter(root, () => {}, [thingsRouter])();
+
+    expect(seen).toEqual(['/api/things/', '/api/things/x']);
+    expect(inspectRoutes(app).map((r) => r.path)).toEqual(seen);
+    expect((await app.request('/api/things/')).status).toBe(200);
+  });
+
   it('runs context middlewares, then routeMiddleware in order, then validators, then the handler', async () => {
     const calls: string[] = [];
 

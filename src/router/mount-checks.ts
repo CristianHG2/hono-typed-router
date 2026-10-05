@@ -2,7 +2,7 @@ import type { OpenAPIHono, RouteConfig } from '@hono/zod-openapi';
 import { inspectRoutes } from 'hono/dev';
 import { registeredRoutes } from './attach';
 import type { RouterCaller } from './mount-guard';
-import { toHonoPath } from './path-params';
+import { routeJoin, toHonoPath } from './path-params';
 import {
   honoJoin,
   normalizeKey,
@@ -78,7 +78,7 @@ export const checkRouter = (checks: RouterChecks) => {
   };
 
   for (const { route, declared: own } of registeredRoutes(checks.router)) {
-    const key = declaredKey(fullPath, route);
+    const key = declaredKey(fullPath, checks.segment, route);
 
     add(key, 'route');
 
@@ -108,8 +108,8 @@ export const checkRouter = (checks: RouterChecks) => {
 };
 
 /** The key of a declared route, with the path that zod-openapi registers in Hono. */
-const declaredKey = (fullPath: string, route: RouteConfig): string =>
-  routeKey(route.method, honoJoin(fullPath, toHonoPath(route.path)));
+const declaredKey = (fullPath: string, segment: string, route: RouteConfig): string =>
+  routeKey(route.method, routeJoin(fullPath, segment, toHonoPath(route.path)));
 
 /** Every route and middleware that a child app serves, with full paths. */
 const servedRoutes = (child: OpenAPIHono, fullPath: string): RouteEntry[] =>

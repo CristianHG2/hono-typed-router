@@ -1,7 +1,8 @@
 import type { OpenAPIHono, RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
 import type { RouterCaller } from './mount-guard';
-import { joinPath, toHonoPath } from './path-params';
+import { toHonoPath } from './path-params';
+import { honoJoin } from './route-match';
 
 /** What `defineRoute` records for each route config that it returns. */
 type DeclaredRoute = {
@@ -205,4 +206,4 @@ const attach = (app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) => {
 };
 
 const describeRoute = (fullPath: string, route: Partial<RouteConfig>): string =>
-  `${String(route.method ?? '').toUpperCase()} route at '${toHonoPath(joinPath(fullPath, route.path ?? '/'))}'`;
+  `${String(route.method ?? '').toUpperCase()} route at '${toHonoPath(honoJoin(fullPath, route.path ?? '/'))}'`;

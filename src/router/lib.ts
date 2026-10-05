@@ -13,7 +13,7 @@ import type { ChildRouter } from './children';
 import { assertRoutesAttached, attachOnOpenapi, guardOpenapi, recordRoute } from './attach';
 import { checkRouter } from './mount-checks';
 import { assertMountedUnderParent, type RouterCaller, type RouterMount } from './mount-guard';
-import { joinPath, toHonoPath, withPathParams } from './path-params';
+import { routeJoin, toHonoPath, withPathParams } from './path-params';
 
 type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
 
@@ -137,7 +137,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         // SAFETY: `merged` is `method` + `path` + a route config typed by `defineRoute()`'s callers (plus
         // the typed `routeDefaults`); `createRoute` returns a copy plus `getRoutingPath`: a `RouteConfig`.
         let declared = createRoute(merged as AnyRouteConfigInput) as RouteConfig;
-        const meta: RouteMeta = { path: toHonoPath(joinPath(fullPath, declared.path)) };
+        const meta: RouteMeta = { path: toHonoPath(routeJoin(fullPath, segment, declared.path)) };
 
         if (transformRoute) {
           declared = transformRoute(declared, meta);
