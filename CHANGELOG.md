@@ -116,6 +116,11 @@ This is the first stable release of `hono-typed-router`. It changes some names a
 
 - The duplicate check of `makeRouter` and `mountRouter` now also reads the `createRoute` configs that `app.openapi` registers on a router maker without options (or with options that change no route). It also reads a config without route middlewares from the `defineRoute` of another router. Before, the check did not see these configs, and Hono gave every request to the first route. Now two children that register the same `createRoute` config, or a `createRoute` config and a `defineRoute` route with the same method and full path, throw a `TypeError` when the router is built. Two configs with the same method and path in one callback also throw: `hono-typed-router: makeRouter: the callback declares GET '/api' twice. The client type of that path can become never. Declare each method and path once.` The same config that the callback registers two times is one route, as for a `defineRoute` config. The order check of the children does not change.
 
+- The loader of `.bind()` must be able to return a value. A loader that returns only `null`, `undefined`, `void`, `never`, or a promise of one of these is a compile error: `The loader returns no value: return the value of the var, or null when there is none`. Before, such a loader compiled, and every request to the route got a 404. The check is on `RouteContext.bind` and on the `bind` of an extended context. `CheckBindLoader` is exported for declaration emit.
+
+  - The check unwraps one level of `Promise`. It does not check a nested `Promise` or a custom thenable.
+  - A loader whose return type is a type parameter compiles, so a generic wrapper over `.bind()` compiles. The check does not run through the wrapper: a call of the wrapper with a loader that returns only `null` also compiles.
+
 ### Patch Changes
 
 - When an error arm handler throws an `Error` that has no `cause`, `handleErrors` (and `handle`) now set the original error as its `cause`. Error logs then show both errors. A frozen error, or an error whose `cause` cannot be set, is rethrown unchanged. A module-level singleton error keeps the `cause` of its first throw.

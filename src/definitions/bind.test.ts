@@ -253,7 +253,12 @@ describe('RouteContext.bind', () => {
   it('sends a null from a router two levels down to the notFound of the top app', async () => {
     const root = defineRootContext('/orgs/:organizationId');
     const middle = defineChildContext(root, '/teams');
-    const leaf = defineChildContext(middle, '/:teamId').bind('x', 'teamId', () => null);
+
+    const leaf = defineChildContext(middle, '/:teamId').bind(
+      'x',
+      'teamId',
+      (): string | null => null,
+    );
 
     const middleRouter = makeRouter(middle, () => {}, [valueRouter(leaf)]);
     const app = makeRouter(root, () => {}, [middleRouter])();

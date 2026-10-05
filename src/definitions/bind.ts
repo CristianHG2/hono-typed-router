@@ -34,12 +34,37 @@ export type BindKey<TKey extends string, TVars> = string extends TKey
 /**
  * The loader of `.bind()`. It gets the value of the path param and the request context,
  * with the vars and the bindings of the route context. It returns the value of the new var, `null` or
- * `undefined` when there is no value, or a promise of one of these.
+ * `undefined` when there is no value, or a promise of one of these. A loader that can return no
+ * value is an error (see {@link CheckBindLoader}).
  */
 export type BindLoader<TVars extends object, TValue, TBindings extends object = {}> = (
   value: string,
   c: Context<RouterEnv<TVars, TBindings>>,
 ) => TValue;
+
+/** The value of a loader result: `T`, or the value of a `Promise`. */
+type BindLoaded<T> = T extends Promise<infer U> ? U : T;
+
+/**
+ * `'any'` for `any`, `'empty'` for `never`, else `'value'`. The `any` test is the tuple form
+ * `[0] extends [1 & T]`. It also routes the wildcard type, which TypeScript puts in place of
+ * a type parameter when it decides which branch of a deferred conditional type an argument
+ * must satisfy, so a loader whose return type is a type parameter is not rejected.
+ */
+type BindLoadedKind<T> = [0] extends [1 & T] ? 'any' : [T] extends [never] ? 'empty' : 'value';
+
+/**
+ * The check of the loader of `.bind()`: an error message when the loader can return no
+ * value (only `null`, `undefined`, `void`, `never`, or a promise of one of these), otherwise
+ * `unknown`. `BindLoaded` unwraps one level of `Promise`, not a nested `Promise` or a custom
+ * thenable. A loader with a generic return type is accepted.
+ *
+ * @internal Exported for declaration emit; not part of the public API.
+ */
+export type CheckBindLoader<TValue> =
+  BindLoadedKind<Exclude<BindLoaded<TValue>, null | undefined | void>> extends 'empty'
+    ? 'The loader returns no value: return the value of the var, or null when there is none'
+    : unknown;
 
 /**
  * Internal: the middleware that `.bind()` adds. It reads the path param `param` and calls

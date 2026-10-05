@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import type { BindKey, BindLoader, BindParam } from './bind';
+import type { BindKey, BindLoader, BindParam, CheckBindLoader } from './bind';
 import {
   defineChildContext as defineChildContextBase,
   defineRootContext as defineRootContextBase,
@@ -76,7 +76,7 @@ export interface RouteContextBase<
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue>,
+    load: BindLoader<_TLoaderVars, TValue> & CheckBindLoader<TValue>,
   ) => ReaugmentContext<K, TPath, TVars & { [Key in TKey]: NonNullable<Awaited<TValue>> }>;
 }
 

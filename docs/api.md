@@ -161,7 +161,7 @@ interface RouteContext<TPath extends string, TVars extends object, TBindings ext
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue, TBindings>,
+    load: BindLoader<_TLoaderVars, TValue, TBindings> & CheckBindLoader<TValue>,
   ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }, TBindings>;
   readonly segment?: string; // internal
 }
@@ -256,6 +256,12 @@ type BindLoader<TVars extends object, TValue, TBindings extends object = {}> = (
   value: string,
   c: Context<RouterEnv<TVars, TBindings>>,
 ) => TValue;
+type BindLoaded<T> = T extends Promise<infer U> ? U : T;
+type BindLoadedKind<T> = [0] extends [1 & T] ? 'any' : [T] extends [never] ? 'empty' : 'value';
+type CheckBindLoader<TValue> =
+  BindLoadedKind<Exclude<BindLoaded<TValue>, null | undefined | void>> extends 'empty'
+    ? 'The loader returns no value: return the value of the var, or null when there is none'
+    : unknown;
 ```
 
 Loads a value from a path param and adds it to the context as a new var. It is the built-in form of the most common context builder. Like `.middleware()`, it returns a new context with a new identity, and it appends one middleware to `middlewares`.
@@ -263,7 +269,9 @@ Loads a value from a path param and adds it to the context as a new var. It is t
 - `key` is the name of the new var. It must be one string literal. A `string` key is a compile error: `Use a string literal for the key`. A union key is a compile error: `Use one string literal for the key`. A key that the context already has gives `Cannot redeclare existing var: <key>`.
 - `param` is a required param of the context path. An optional `:param?` is not accepted, because a request can match the path without it.
 - `load` gets the value of the param and `c`. `c.var` has the vars of the context, and `c.env` has its bindings. `load` returns the value, `null`, `undefined`, or a promise of one of these.
-- A loader that returns only `null`, `undefined`, `void`, or `never` compiles, and every request to the route gets a 404.
+- A loader that can return no value is a compile error: `The loader returns no value: return the value of the var, or null when there is none`. Such a loader returns only `null`, `undefined`, `void`, `never`, or a promise of one of these. Without the check, every request to the route gets a 404.
+- The check unwraps one level of `Promise`. It does not check a nested `Promise` or a custom thenable.
+- A loader whose return type is a type parameter compiles. For example, a generic wrapper `<T>(find: (id: string) => Promise<T | null>) => context.bind('thing', 'id', (id) => find(id))` compiles. The check does not run through the wrapper: a call of the wrapper with a loader that returns only `null` also compiles.
 - The new var has the type `NonNullable<Awaited<TValue>>`.
 - The third type parameter is internal. Do not pass it. Do not annotate `c` with other vars. If you annotate `c` with other vars, or pass the third type argument, the loader can read vars that the context does not have. This does not bypass the key check.
 - A context with a widened `string` path cannot call `.bind()`, because its params are unknown.
@@ -953,7 +961,7 @@ interface RouteContextBase<K extends RouteContextKind, TPath extends string, TVa
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue>,
+    load: BindLoader<_TLoaderVars, TValue> & CheckBindLoader<TValue>,
   ) => ReaugmentContext<K, TPath, TVars & { [Key in TKey]: NonNullable<Awaited<TValue>> }>;
 }
 

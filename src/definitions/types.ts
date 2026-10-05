@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono';
-import type { BindKey, BindLoader, BindParam } from './bind';
+import type { BindKey, BindLoader, BindParam, CheckBindLoader } from './bind';
 import type { ChildPath } from './path';
 import type {
   CheckMiddlewareFits,
@@ -85,7 +85,9 @@ export interface RouteContext<
    * `app.onError`. `key` must be one string literal and a new var: a `string` key or a union
    * key is an error. `param` must be a required param of the path. When the param is missing
    * from the request, the middleware returns `c.notFound()` and does not call `load`. The
-   * middleware name is `bind:<key>`. `showRoutes` shows it only with `{ verbose: true }`.
+   * middleware name is `bind:<key>`. `showRoutes` shows it only with `{ verbose: true }`. A
+   * loader that can return no value (only `null`, `undefined`, `void`, `never`, or a promise of
+   * one of these) is an error.
    *
    * Limits:
    * - An annotation on `c` with other vars, or an explicit third type argument, lets `load`
@@ -97,6 +99,9 @@ export interface RouteContext<
    *   is not checked, and its requests also run `load`. Mount such a sibling first. A param
    *   child mounted before a literal sibling (`/:id` before `/new`) is a `TypeError` at
    *   mount.
+   * - A loader whose return type is a type parameter is accepted, so a generic wrapper over
+   *   `.bind()` compiles. The check of the loader does not run through the wrapper. The check
+   *   unwraps one level of `Promise`, not a nested `Promise` or a custom thenable.
    *
    * `_TLoaderVars` is internal: do not pass it. Its default is `TVars`. A type parameter keeps
    * a context assignable to a context with fewer vars: a check of two generic signatures
@@ -105,7 +110,7 @@ export interface RouteContext<
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue, TBindings>,
+    load: BindLoader<_TLoaderVars, TValue, TBindings> & CheckBindLoader<TValue>,
   ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }, TBindings>;
   /**
    * Internal: the path relative to the parent, which `makeRouter` uses as the router's

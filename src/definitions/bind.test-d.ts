@@ -273,6 +273,8 @@ interface CtxKind extends RouteContextKind {
 
   // @ts-expect-error — 'flag' is already a var
   ctx.bind('flag', 'organizationId', () => true);
+  // @ts-expect-error — The loader returns no value: the check also runs on an extended context
+  ctx.bind('empty', 'organizationId', async () => null);
 
   const child = extended
     .defineChildContext<typeof ctx>()('/members/:memberId')

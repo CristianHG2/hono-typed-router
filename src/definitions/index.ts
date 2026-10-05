@@ -8,7 +8,7 @@ export type {
   ContextEnv,
 } from './types';
 
-export type { BindKey, BindLoader, BindParam } from './bind';
+export type { BindKey, BindLoader, BindParam, CheckBindLoader } from './bind';
 
 export { extendRouteContext } from './extend';
 
