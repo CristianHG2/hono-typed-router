@@ -778,6 +778,33 @@ For Cloudflare Workers:
 export default { fetch: app.fetch };
 ```
 
+### Cloudflare bindings
+
+The bindings of a Worker are the type of `c.env`. Declare them on the root context. Give them as the third type argument of `defineRootContext`. Children get the bindings of their parent. Then `c.env.DB` has a type in each route handler:
+
+```ts
+interface Env {
+  Bindings: { DB: D1Database };
+}
+
+const workerContext = defineRootContext<'/api', {}, Env['Bindings']>('/api');
+const statsResponse = jsonResponse(z.object({ users: z.number() }), 'User count');
+
+const statsRouter = makeRouter(
+  defineChildContext(workerContext, '/stats'),
+  ({ app, defineRoute }) =>
+    app.openapi(defineRoute('get', { responses: { 200: statsResponse } }), async (c) => {
+      const users = await c.env.DB.prepare('SELECT count(*) AS n FROM users').first<number>('n');
+
+      return c.json({ users: users ?? 0 }, 200);
+    }),
+);
+
+const app = mountRouter(workerContext, [statsRouter]);
+```
+
+Export `app` as in the Cloudflare Workers example above. A middleware typed `createMiddleware<Env>` in the root array also gives the bindings to the context. Without bindings, `c.env` is `unknown`.
+
 ## Exposing the OpenAPI document and Swagger UI
 
 The middlewares of the root context run for each route of `app`. The base path of the root context, for example `/api`, also applies. Thus `app.doc('/openapi.json', ...)` serves the document at `/api/openapi.json`, behind the session middleware. Instead, mount `app` on an outer `OpenAPIHono`. Then register the document and the UIs on the outer app. The outer app gets the routes and the OpenAPI data of `app`. Serve `server`, not `app`:
@@ -1393,23 +1420,24 @@ To make type-checking faster:
 
 The 0.x names still work in 1.x. The library marks them `@deprecated`, and version 2.0 will remove them.
 
-| 0.x                                                               | 1.x                                                                                                     |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `makeHonoResponse(schema, desc)`                                  | `jsonResponse(schema, desc)`                                                                            |
-| `makeHonoJsonBody(schema, desc)`                                  | `jsonBody(schema, desc)`                                                                                |
-| `makeHonoJsonRequest(schema, desc)`                               | `jsonRequest(schema, desc)`                                                                             |
-| `makeHonoNoContentResponse(desc)`                                 | `emptyResponse(desc)`                                                                                   |
-| `createRouter({ base })`                                          | `createRouter({ routeDefaults })`                                                                       |
-| `route(method, config)`                                           | `defineRoute(method, config)`                                                                           |
-| `({ router, route })` in the callback of `makeRouter`             | `({ app, defineRoute })`                                                                                |
-| `handler(c, fn).errors(arms)`                                     | `handle(c, fn, arms)`                                                                                   |
-| `handler(c, fn)`                                                  | `handle(c, fn)`                                                                                         |
-| `on(ErrorClass, fn)`                                              | `onError(ErrorClass, fn)`                                                                               |
-| `RETHROW`                                                         | `rethrow()`                                                                                             |
-| `defineRootRoute`                                                 | `defineRootContext`                                                                                     |
-| `defineChildRoute`                                                | `defineChildContext`                                                                                    |
-| `defineChildRoute<typeof p>()(s)`                                 | `defineChildContext(p, s)`, or `defineChildContext<typeof p>()(s)` (the curried form is not deprecated) |
-| `createScopeMiddleware({ resolve: (c) => c.var.session.scopes })` | `createScopeMiddleware<SessionVars>({ resolve })`, or `createScopeMiddleware(context, { resolve })`     |
+| 0.x                                                                           | 1.x                                                                                                     |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `makeHonoResponse(schema, desc)`                                              | `jsonResponse(schema, desc)`                                                                            |
+| `makeHonoJsonBody(schema, desc)`                                              | `jsonBody(schema, desc)`                                                                                |
+| `makeHonoJsonRequest(schema, desc)`                                           | `jsonRequest(schema, desc)`                                                                             |
+| `makeHonoNoContentResponse(desc)`                                             | `emptyResponse(desc)`                                                                                   |
+| `createRouter({ base })`                                                      | `createRouter({ routeDefaults })`                                                                       |
+| `route(method, config)`                                                       | `defineRoute(method, config)`                                                                           |
+| `({ router, route })` in the callback of `makeRouter`                         | `({ app, defineRoute })`                                                                                |
+| `handler(c, fn).errors(arms)`                                                 | `handle(c, fn, arms)`                                                                                   |
+| `handler(c, fn)`                                                              | `handle(c, fn)`                                                                                         |
+| `on(ErrorClass, fn)`                                                          | `onError(ErrorClass, fn)`                                                                               |
+| `RETHROW`                                                                     | `rethrow()`                                                                                             |
+| `defineRootRoute`                                                             | `defineRootContext`                                                                                     |
+| `defineChildRoute`                                                            | `defineChildContext`                                                                                    |
+| `defineChildRoute<typeof p>()(s)`                                             | `defineChildContext(p, s)`, or `defineChildContext<typeof p>()(s)` (the curried form is not deprecated) |
+| `createScopeMiddleware({ resolve: (c) => c.var.session.scopes })`             | `createScopeMiddleware<SessionVars>({ resolve })`, or `createScopeMiddleware(context, { resolve })`     |
+| `Context<{ Variables: V }>` with a `{ Bindings: B; Variables: V }` middleware | `Context<{ Bindings: B; Variables: V }>`                                                                |
 
 The old names are aliases. They hold the same functions, so this code still compiles. Your editor marks each old name as deprecated:
 
@@ -1422,7 +1450,9 @@ const thingsContext = defineChildRoute(apiContext, '/things');
 
 `extendRouteContext` also returns the old names as deprecated keys.
 
-The last row of the table is a breaking change, not an alias. In 1.x, `createScopeMiddleware` types `c.var` in `resolve`. Without a type argument or a context, `c.var` has no vars, so the 0.x form is a compile error.
+The last two rows of the table are breaking changes, not aliases. In 1.x, `createScopeMiddleware` types `c.var` in `resolve`. Without a type argument or a context, `c.var` has no vars, so the 0.x form is a compile error.
+
+In 1.x, a middleware typed `{ Bindings: B; Variables: V }` in the root array or in `.middleware()` gives the bindings `B` to the context. In 0.x, the context dropped them. The `Env` of the app is then `{ Bindings: B; Variables: V }`. Hono's `Context<E>` accepts only an `Env` with the same `Bindings` and `Variables`, not a wider or narrower one. Thus a handler or a helper typed only `{ Variables: V }`, such as `RouteHandler<typeof r, { Variables: V }>` or `(c: Context<{ Variables: V }>) => ...`, is a compile error (TS2345). Type it `{ Bindings: B; Variables: V }`.
 
 Two type changes have no alias:
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { z } from '@hono/zod-openapi';
+import { createRoute, z, type OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import { defineChildContext, defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
+import { registeredRoutes } from './attach';
 import { createRouter } from './lib';
 import { mountRouter } from './mount';
 
@@ -36,7 +37,7 @@ describe('duplicate routes', () => {
     expect(build).toThrow(TypeError);
     expect(build).toThrow(
       new TypeError(
-        "hono-typed-router: makeRouter: two children declare GET '/api/things'. The client type of that path becomes never. Declare each method and path once.",
+        "hono-typed-router: makeRouter: two children declare GET '/api/things'. The client type of that path can become never. Declare each method and path once.",
       ),
     );
   });
@@ -60,7 +61,7 @@ describe('duplicate routes', () => {
   it('throws when the callback declares the same route twice', () => {
     expect(routes(root, ['get', 'get'])).toThrow(
       new TypeError(
-        "hono-typed-router: makeRouter: the callback declares GET '/api' twice. The client type of that path becomes never. Declare each method and path once.",
+        "hono-typed-router: makeRouter: the callback declares GET '/api' twice. The client type of that path can become never. Declare each method and path once.",
       ),
     );
   });
@@ -281,5 +282,158 @@ describe('children order', () => {
     });
 
     expect(makeRouter(root, () => {}, [raw, routes(stats, ['get'])])).toThrow(message);
+  });
+});
+
+describe('duplicate routes with createRoute configs', () => {
+  const root = defineRootContext('/api', []);
+  const a = defineChildContext<typeof root>()('/things');
+  const b = defineChildContext<typeof root>()('/things');
+
+  // SAFETY: the registry keys apps by identity; the env type of the app does not matter.
+  const recorded = (app: unknown) => registeredRoutes(app as OpenAPIHono);
+
+  const rawGet = (path = '/') =>
+    createRoute({ method: 'get', path, responses: { 200: okResponse } });
+
+  // A router that registers `config` with `app.openapi`, as the callback gives it.
+  const withRaw = (ctx: Parameters<typeof makeRouter>[0], config: RouteConfig) =>
+    makeRouter(ctx, ({ app }) => {
+      app.openapi(config, (c) => c.json({ ok: true }, 200) as never);
+    });
+
+  it('throws when two children register the same createRoute config', () => {
+    const build = () => makeRouter(root, () => {}, [withRaw(a, rawGet()), withRaw(b, rawGet())])();
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(
+      new TypeError(
+        "hono-typed-router: makeRouter: two children declare GET '/api/things'. The client type of that path can become never. Declare each method and path once.",
+      ),
+    );
+  });
+
+  it('throws when a createRoute config in the callback and a defineRoute route in a child collide', () => {
+    const parent = makeRouter(
+      root,
+      ({ app }) => {
+        app.openapi(rawGet('/things'), (c) => c.json({ ok: true }, 200) as never);
+      },
+      [routes(a, ['get'])],
+    );
+
+    expect(parent).toThrow(TypeError);
+    expect(parent).toThrow(
+      new TypeError(
+        "hono-typed-router: makeRouter: the callback and a child both declare GET '/api/things'. The client type of that path can become never. Declare each method and path once.",
+      ),
+    );
+  });
+
+  it('throws when a defineRoute route in the callback and a createRoute config in a child collide', () => {
+    const parent = makeRouter(
+      root,
+      ({ app, defineRoute }) => {
+        const route = defineRoute('get', { path: '/things', responses: { 200: okResponse } });
+
+        app.openapi(route, (c) => c.json({ ok: true }, 200) as never);
+      },
+      [withRaw(a, rawGet())],
+    );
+
+    expect(parent).toThrow(TypeError);
+    expect(parent).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api/things'.",
+    );
+  });
+
+  it('records one createRoute config that the callback registers twice as one route', () => {
+    const raw = rawGet();
+
+    const app = makeRouter(root, ({ app }) => {
+      app.openapi(raw, (c) => c.json({ ok: true }, 200) as never);
+      app.openapi(raw, (c) => c.json({ ok: true }, 200) as never);
+    })();
+
+    expect(recorded(app)).toEqual([{ route: raw, declared: false }]);
+  });
+
+  it('throws when the callback registers two createRoute configs with the same method and path', () => {
+    const router = makeRouter(root, ({ app }) => {
+      app.openapi(rawGet(), (c) => c.json({ ok: true }, 200) as never);
+      app.openapi(rawGet(), (c) => c.json({ ok: true }, 200) as never);
+    });
+
+    expect(router).toThrow(TypeError);
+    expect(router).toThrow(
+      new TypeError(
+        "hono-typed-router: makeRouter: the callback declares GET '/api' twice. The client type of that path can become never. Declare each method and path once.",
+      ),
+    );
+  });
+
+  it('records a foreign config that the callback registers twice as one route', () => {
+    let foreign: RouteConfig | undefined;
+
+    makeRouter(a, ({ defineRoute }) => {
+      foreign = defineRoute('get', { responses: { 200: okResponse } });
+    })();
+
+    const config = foreign!;
+
+    const app = makeRouter(b, ({ app }) => {
+      app.openapi(config, (c) => c.json({ ok: true }, 200) as never);
+      app.openapi(config, (c) => c.json({ ok: true }, 200) as never);
+    })();
+
+    expect(recorded(app)).toEqual([{ route: config, declared: false }]);
+  });
+
+  it('records a config from the defineRoute of another router on the router that registers it', () => {
+    let foreign: RouteConfig | undefined;
+
+    // The router that declares the config does not register it.
+    makeRouter(a, ({ defineRoute }) => {
+      foreign = defineRoute('get', { responses: { 200: okResponse } });
+    })();
+
+    const config = foreign!;
+    const app = withRaw(b, config)();
+
+    expect(recorded(app)).toEqual([{ route: config, declared: false }]);
+
+    const parent = makeRouter(root, () => {}, [withRaw(b, config), routes(a, ['get'])]);
+
+    expect(parent).toThrow(TypeError);
+    expect(parent).toThrow(
+      "hono-typed-router: makeRouter: two children declare GET '/api/things'.",
+    );
+  });
+
+  it('does not record the routes of a child on the parent', () => {
+    const child = defineChildContext(root, '/a');
+    const raw = rawGet('/a/x');
+    let parentApp: unknown;
+
+    const app = makeRouter(
+      root,
+      ({ app }) => {
+        parentApp = app;
+        app.openapi(raw, (c) => c.json({ ok: true }, 200) as never);
+      },
+      [routes(child, ['get'], '/y')],
+    )();
+
+    expect(app).toBe(parentApp);
+    expect(recorded(app).map(({ route }) => route)).toEqual([raw]);
+  });
+
+  it('throws through mountRouter', () => {
+    const build = () => mountRouter(root, [withRaw(a, rawGet()), withRaw(b, rawGet())]);
+
+    expect(build).toThrow(TypeError);
+    expect(build).toThrow(
+      "hono-typed-router: mountRouter: two children declare GET '/api/things'.",
+    );
   });
 });

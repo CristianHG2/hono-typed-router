@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { ParamKeys } from 'hono/types';
+import type { RouterEnv } from './env';
 
 /**
  * The params that `.bind()` accepts: the required params of the context path. An optional
@@ -32,12 +33,12 @@ export type BindKey<TKey extends string, TVars> = string extends TKey
 
 /**
  * The loader of `.bind()`. It gets the value of the path param and the request context,
- * with the vars of the route context. It returns the value of the new var, `null` or
+ * with the vars and the bindings of the route context. It returns the value of the new var, `null` or
  * `undefined` when there is no value, or a promise of one of these.
  */
-export type BindLoader<TVars extends object, TValue> = (
+export type BindLoader<TVars extends object, TValue, TBindings extends object = {}> = (
   value: string,
-  c: Context<{ Variables: TVars }>,
+  c: Context<RouterEnv<TVars, TBindings>>,
 ) => TValue;
 
 /**

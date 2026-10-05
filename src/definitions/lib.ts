@@ -67,6 +67,7 @@ function createRouteContext<TPath extends string, TVars extends object>(
     segment,
     // SAFETY: `vars` is a phantom type carrier; it is never read at runtime.
     vars: {} as TVars,
+    bindings: {},
     middlewares,
     [IDENTITY]: identity,
 

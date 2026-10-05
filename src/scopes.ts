@@ -1,14 +1,17 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { RouteConfig } from '@hono/zod-openapi';
+import type { RouterEnv } from './definitions/env';
 import type { RouteMiddlewareFactory } from './router';
 
-export interface ScopeMiddlewareOptions<TVars extends object = {}> {
+export interface ScopeMiddlewareOptions<TVars extends object = {}, TBindings extends object = {}> {
   /**
    * Returns the set of scopes available to the current request. May be sync or async.
    * Typically reads from a context variable populated by an auth middleware. `c.var` has
-   * the vars `TVars`.
+   * the vars `TVars`, and `c.env` has the bindings `TBindings`.
    */
-  resolve: (c: Context<{ Variables: TVars }>) => readonly string[] | Promise<readonly string[]>;
+  resolve: (
+    c: Context<RouterEnv<TVars, TBindings>>,
+  ) => readonly string[] | Promise<readonly string[]>;
 
   /**
    * Optional error payload customizer. Receives the missing scopes and the context;
@@ -17,7 +20,7 @@ export interface ScopeMiddlewareOptions<TVars extends object = {}> {
    */
   onForbidden?: (
     missingScopes: string[],
-    c: Context<{ Variables: TVars }>,
+    c: Context<RouterEnv<TVars, TBindings>>,
   ) => unknown | Promise<unknown>;
 }
 
@@ -34,17 +37,18 @@ export interface ScopeMiddlewareOptions<TVars extends object = {}> {
  * are not checked against the contexts of the routes: give the vars that the context
  * middlewares set before the route middleware runs.
  */
-export function createScopeMiddleware<TVars extends object = {}>(
-  options: ScopeMiddlewareOptions<TVars>,
+export function createScopeMiddleware<TVars extends object = {}, TBindings extends object = {}>(
+  options: ScopeMiddlewareOptions<TVars, TBindings>,
 ): RouteMiddlewareFactory;
 /**
- * Context form: `TVars` are the vars of `context`, so `resolve` reads them without a type
- * argument: `createScopeMiddleware(apiContext, { resolve: (c) => c.var.session.scopes })`.
- * Only the type of `context` is used.
+ * Context form: `TVars` are the vars of `context` and `TBindings` are its bindings, so
+ * `resolve` reads them without a type argument:
+ * `createScopeMiddleware(apiContext, { resolve: (c) => c.var.session.scopes })`. Only the
+ * type of `context` is used.
  */
-export function createScopeMiddleware<TVars extends object>(
-  context: { readonly vars: TVars },
-  options: ScopeMiddlewareOptions<TVars>,
+export function createScopeMiddleware<TVars extends object, TBindings extends object = {}>(
+  context: { readonly vars: TVars; readonly bindings?: TBindings },
+  options: ScopeMiddlewareOptions<TVars, TBindings>,
 ): RouteMiddlewareFactory;
 export function createScopeMiddleware(
   ...args: [ScopeMiddlewareOptions] | [unknown, ScopeMiddlewareOptions]

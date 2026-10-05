@@ -2,6 +2,7 @@ import type { OpenAPIHono, RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
 import type { ZodType, ZodUnion } from 'zod';
 import type { RouteContext } from '../definitions';
+import type { RouterEnv } from '../definitions/env';
 import type { CheckChildren, ChildRouter, ChildSchema, WithChildSchemas } from './children';
 import type { CheckPathParams, WithPathParams } from './path-params';
 
@@ -188,13 +189,17 @@ export interface CreateRouterOptions<TBase extends BaseRouteConfig = {}> {
 type RouterCallback<
   TPath extends string,
   TVars extends object,
+  TBindings extends object,
   TBase extends BaseRouteConfig,
   TResult,
 > = (options: {
-  /** The `OpenAPIHono` app of the context. Register routes with `app.openapi()`. */
-  app: OpenAPIHono<{ Variables: TVars }>;
+  /**
+   * The `OpenAPIHono` app of the context. Register routes with `app.openapi()`. Its `Env`
+   * has the vars and the bindings of the context.
+   */
+  app: OpenAPIHono<RouterEnv<TVars, TBindings>>;
   /** @deprecated Use app. Removed in 2.0. */
-  router: OpenAPIHono<{ Variables: TVars }>;
+  router: OpenAPIHono<RouterEnv<TVars, TBindings>>;
   /** Declares a route at the path of the context. Pass the result to `app.openapi()`. */
   defineRoute: MakeRouteFn<TPath, TBase>;
   /** @deprecated Use defineRoute. Removed in 2.0. */
@@ -213,17 +218,19 @@ export type FactoryReturn<TResult, TRouter> = [TResult] extends [void]
       | Exclude<TResult, null | undefined | void>
       | ([Extract<TResult, null | undefined | void>] extends [never] ? never : TRouter);
 
-type RouterThunk<TVars extends object, TCallbackResult> = () => FactoryReturn<
+type RouterThunk<
+  TVars extends object,
+  TBindings extends object,
   TCallbackResult,
-  OpenAPIHono<{ Variables: TVars }>
->;
+> = () => FactoryReturn<TCallbackResult, OpenAPIHono<RouterEnv<TVars, TBindings>>>;
 
 type RouterWithChildrenThunk<
   TVars extends object,
+  TBindings extends object,
   TCallbackResult,
   TChildren extends readonly ChildRouter[],
 > = () => WithChildSchemas<
-  FactoryReturn<TCallbackResult, OpenAPIHono<{ Variables: TVars }>>,
+  FactoryReturn<TCallbackResult, OpenAPIHono<RouterEnv<TVars, TBindings>>>,
   ChildSchema<TChildren[number]>
 >;
 
@@ -250,11 +257,11 @@ export interface MakeRouterFn<TBase extends BaseRouteConfig = {}> {
    * nothing. An `OpenAPIHono` app with no typed routes is a type error (see
    * {@link CheckCallbackResult}).
    */
-  <TPath extends string, TVars extends object, TCallbackResult>(
-    context: RouteContext<TPath, TVars>,
-    callback: RouterCallback<TPath, TVars, TBase, TCallbackResult | void> &
+  <TPath extends string, TVars extends object, TCallbackResult, TBindings extends object = {}>(
+    context: RouteContext<TPath, TVars, TBindings>,
+    callback: RouterCallback<TPath, TVars, TBindings, TBase, TCallbackResult | void> &
       CheckCallbackResult<TCallbackResult>,
-  ): RouterThunk<TVars, TCallbackResult>;
+  ): RouterThunk<TVars, TBindings, TCallbackResult>;
   /**
    * With children the callback must return the app the children are mounted on, or
    * nothing (the children are then mounted on the router itself). The thunk's result
@@ -266,16 +273,18 @@ export interface MakeRouterFn<TBase extends BaseRouteConfig = {}> {
    * segment, such as `'/:id'`, comes before a sibling with a literal segment, such as
    * `'/stats'`: Hono matches in registration order. The order is accepted when the param
    * child has no middlewares of its own and no method in common with the sibling. Only
-   * the routes from `defineRoute` that `app.openapi` registers are checked.
+   * the routes that `app.openapi` registers are checked: on a router maker without options,
+   * this includes a `createRoute` config.
    */
   <
     TPath extends string,
     TVars extends object,
     TCallbackResult extends OpenAPIHono<any, any, any> | void,
     const TChildren extends readonly ChildRouter[],
+    TBindings extends object = {},
   >(
-    context: RouteContext<TPath, TVars>,
-    callback: RouterCallback<TPath, TVars, TBase, TCallbackResult>,
+    context: RouteContext<TPath, TVars, TBindings>,
+    callback: RouterCallback<TPath, TVars, TBindings, TBase, TCallbackResult>,
     children: (TChildren & CheckChildren<TChildren>) | undefined,
-  ): RouterWithChildrenThunk<TVars, TCallbackResult, TChildren>;
+  ): RouterWithChildrenThunk<TVars, TBindings, TCallbackResult, TChildren>;
 }

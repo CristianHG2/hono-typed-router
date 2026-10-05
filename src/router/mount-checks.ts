@@ -21,6 +21,8 @@ type BuiltRouter = {
   readonly ownMiddlewares: boolean;
   /** `METHOD /full/path` of each route of the router and of its children. */
   readonly routes: readonly string[];
+  /** The keys in `routes` of the routes that a `defineRoute` of the subtree declared. */
+  readonly declared: readonly string[];
 };
 
 /** The record of each built app, keyed by the app that the thunk returns. */
@@ -54,14 +56,16 @@ type RouterChecks = {
  * or when a child with a param segment comes before a sibling whose routes it gets (see
  * {@link assertChildOrder}).
  *
- * Only the routes that the `defineRoute` of a router declares and that its `app.openapi`
- * registers count as duplicates. A `createRoute` config, or a route registered on another
- * app, is not checked.
+ * The duplicate check reads the routes that `app.openapi` of each router registers (see
+ * {@link registeredRoutes}). On a router maker without options, this includes a
+ * `createRoute` config. A route registered on another app, or a raw route such as
+ * `app.get()`, is not checked.
  */
 export const checkRouter = (checks: RouterChecks) => {
   const { caller, fullPath } = checks;
   const seen = new Map<string, Declared>();
   const routes: string[] = [];
+  const declared: string[] = [];
 
   const add = (key: string, source: Source) => {
     const normalized = normalizeKey(key);
@@ -73,7 +77,13 @@ export const checkRouter = (checks: RouterChecks) => {
     routes.push(key);
   };
 
-  for (const route of registeredRoutes(checks.router)) add(declaredKey(fullPath, route), 'route');
+  for (const { route, declared: own } of registeredRoutes(checks.router)) {
+    const key = declaredKey(fullPath, route);
+
+    add(key, 'route');
+
+    if (own) declared.push(key);
+  }
 
   const built = checks.children.flatMap((child): MountedChild[] => {
     const record = BUILT.get(child);
@@ -85,12 +95,15 @@ export const checkRouter = (checks: RouterChecks) => {
 
   for (const child of built) {
     for (const key of child.routes) add(key, 'child');
+
+    declared.push(...child.declared);
   }
 
   BUILT.set(checks.app, {
     segment: checks.segment,
     ownMiddlewares: checks.ownMiddlewares || built.some((child) => child.ownMiddlewares),
     routes,
+    declared,
   });
 };
 
@@ -128,7 +141,7 @@ const duplicate = (caller: RouterCaller, previous: Declared, next: Declared) => 
 
   // Different param names give two client keys, but Hono serves both paths with the first route.
   const why = same
-    ? 'The client type of that path becomes never'
+    ? 'The client type of that path can become never'
     : 'Hono gives every request to the first route';
 
   return new TypeError(
@@ -187,7 +200,7 @@ const collision = (earlier: MountedChild, later: MountedChild): RouteEntry | und
 const opaque = (child: MountedChild): boolean => {
   if (child.ownMiddlewares) return true;
 
-  const declared = new Set(child.routes);
+  const declared = new Set(child.declared);
 
   return child.entries.some((entry) =>
     entry.isMiddleware ? entry.method === 'ALL' : !declared.has(routeKey(entry.method, entry.path)),

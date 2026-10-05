@@ -85,3 +85,19 @@ describe('context path syntax', () => {
     expect(extended.defineRootContext('/x/:id').path).toBe('/x/:id');
   });
 });
+
+describe('bindings phantom', () => {
+  it('is an empty object on each context form', () => {
+    const root = defineRootContext('/api');
+
+    const derived = root.middleware(async (_c, next) => {
+      await next();
+    });
+
+    expect(root.bindings).toEqual({});
+    expect(derived.bindings).toEqual({});
+    expect(defineChildContext(root, '/x').bindings).toEqual({});
+    expect(defineChildContext<typeof root>()('/x').bindings).toEqual({});
+    expect(extended.defineRootContext('/api').bindings).toEqual({});
+  });
+});

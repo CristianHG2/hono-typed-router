@@ -1,7 +1,18 @@
 import type { MiddlewareHandler } from 'hono';
 import type { BindKey, BindLoader, BindParam } from './bind';
 import type { ChildPath } from './path';
-import type { CheckRootArray, FoldVars } from './root-array';
+import type {
+  CheckMiddlewareFits,
+  ContextBindings,
+  HandlerBindings,
+  HandlerSets,
+  READS,
+  RouterEnv,
+  SETS,
+} from './env';
+import type { CheckRootArray, FoldBindings, FoldVars } from './root-array';
+
+export type { HandlerReads, HandlerSets, HandlerVars, READS, SETS } from './env';
 
 /**
  * Constraint for a `.middleware<TNewVars>()` type argument: every key that already
@@ -16,113 +27,56 @@ export type NoRedeclare<TNew, TOld> = {
     : TNew[K];
 };
 
-/**
- * Type-only key that {@link ContextEnv} puts on an `Env`: the vars that the middleware reads
- * from its context. `.middleware()` and the root array use it to tell the vars that a
- * middleware reads from the vars that it sets. No runtime value has this key.
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export declare const READS: unique symbol;
-
-/** The `Env` of a middleware, or `never` if `THandler` is not a middleware. */
-type HandlerEnv<THandler> = THandler extends MiddlewareHandler<infer E, any, any> ? E : never;
-
-/** The `Variables` of an `Env`. An untyped `Env` (`any`, or `any` variables) gives `{}`. */
-type EnvVars<E> =
-  IsAny<E> extends true
-    ? {}
-    : E extends { Variables: infer V extends object }
-      ? IsAny<V> extends true
-        ? {}
-        : V
-      : {};
-
-/** The vars that an `Env` built with `ContextEnv` reads. Any other `Env` gives `{}`. */
-type EnvReads<E> =
-  IsAny<E> extends true ? {} : E extends { readonly [READS]: infer R extends object } ? R : {};
-
-/**
- * Type-only key that {@link ContextEnv} puts on an `Env`: the vars that the middleware sets.
- * `.middleware()` and the root array read the set vars from this key, not from
- * `Omit<Variables, keyof reads>`. An `Omit` makes each context in a chain of `ContextEnv`
- * middlewares contain the `Omit` of the previous context, and the check time grows
- * exponentially with the chain length. No runtime value has this key.
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export declare const SETS: unique symbol;
-
-/**
- * The vars that an `Env` sets: the {@link SETS} key of a `ContextEnv` `Env`. Any other `Env`
- * sets all its `Variables`.
- */
-type EnvSets<E> =
-  IsAny<E> extends true
-    ? {}
-    : E extends { readonly [SETS]: infer N extends object }
-      ? N
-      : EnvVars<E>;
-
-/**
- * The vars that a middleware reads from its context (`{}` if not built with `ContextEnv`).
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export type HandlerReads<THandler> = EnvReads<HandlerEnv<THandler>>;
-
-/**
- * The vars that a middleware sets: its `Variables` without the vars that it reads.
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export type HandlerSets<THandler> = EnvSets<HandlerEnv<THandler>>;
-
-/**
- * `unknown` when a typed middleware with `Env` `E` fits a context with vars `TVars`, else a
- * message. It fits when the context has each var that the middleware reads, and the
- * middleware sets no var that the context has.
- */
-type CheckEnvFits<E, TVars> = [Exclude<keyof EnvReads<E>, keyof TVars>] extends [never]
-  ? [Extract<keyof EnvSets<E>, keyof TVars>] extends [never]
-    ? unknown
-    : `Cannot redeclare existing var: ${Extract<keyof EnvSets<E>, keyof TVars> & string}`
-  : `This middleware reads vars that the context does not have: ${Exclude<keyof EnvReads<E>, keyof TVars> & string}`;
-
-/**
- * {@link CheckEnvFits} for a middleware.
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export type CheckMiddlewareFits<THandler, TVars> = CheckEnvFits<HandlerEnv<THandler>, TVars>;
-
-export interface MiddlewareFactory<TPath extends string, TVars extends object> {
+export interface MiddlewareFactory<
+  TPath extends string,
+  TVars extends object,
+  TBindings extends object = {},
+> {
   /**
-   * An inline handler: `c` has the vars of the context plus `TNewVars`. Must stay first, so
-   * that TypeScript tries it first and an error in the handler body stays in the body. An
-   * explicit type argument always selects this signature.
+   * An inline handler: `c` has the vars of the context plus `TNewVars`, and `c.env` has the
+   * bindings of the context. Must stay first, so that TypeScript tries it first and an error
+   * in the handler body stays in the body. An explicit type argument always selects this
+   * signature. On a context with bindings, a middleware typed only with `Variables` does not
+   * fit this signature, so it uses the next one.
+   */
+  <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
+    handler: MiddlewareHandler<RouterEnv<TVars & TNewVars, TBindings>, TPath>,
+  ): RouteContext<TPath, TVars & TNewVars, TBindings>;
+  /**
+   * A middleware typed only with `Variables`, on a context with bindings. It does not fit the
+   * signature above: Hono's `Context<E>` accepts only an `Env` with the same `Bindings` and
+   * `Variables`, and its `Env` has no `Bindings`. This signature keeps the behaviour of a
+   * context without bindings. The same middleware a second time adds no vars, and a wider
+   * `{ Variables: V & W }` middleware on a context with `V` adds `W`. On a context without
+   * bindings, the signature above matches first.
    */
   <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
     handler: MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>,
-  ): RouteContext<TPath, TVars & TNewVars>;
+  ): RouteContext<TPath, TVars & TNewVars, TBindings>;
   /**
    * A reusable middleware with its own `Env`: `createMiddleware<{ Variables: NewVars }>` or
    * `createMiddleware<ContextEnv<typeof ctx, NewVars>>`. It fits each context that has the
    * vars that it reads, and the context gets the vars that it sets. A middleware without
-   * `ContextEnv` reads no vars and sets all its `Variables`. `Bindings` are not added to the
-   * context. The second type parameter has no default, so an explicit type argument cannot
-   * select this signature.
+   * `ContextEnv` reads no vars and sets all its `Variables`. The `Bindings` of the
+   * middleware are added to the bindings of the context, without a check. The second type
+   * parameter has no default, so an explicit type argument cannot select this signature.
    */
   <THandler extends MiddlewareHandler<any, any, any>, _NoExplicitTypeArgs>(
     handler: THandler & CheckMiddlewareFits<THandler, TVars>,
-  ): RouteContext<TPath, TVars & HandlerSets<THandler>>;
+  ): RouteContext<TPath, TVars & HandlerSets<THandler>, TBindings & HandlerBindings<THandler>>;
 }
 
-export interface RouteContext<TPath extends string, TVars extends object> {
+export interface RouteContext<
+  TPath extends string,
+  TVars extends object,
+  TBindings extends object = {},
+> {
   path: TPath;
   vars: TVars;
+  /** A phantom value of the Cloudflare `Bindings` (`c.env`). It is never read at runtime. */
+  bindings: TBindings;
   middlewares: MiddlewareHandler[];
-  middleware: MiddlewareFactory<TPath, TVars>;
+  middleware: MiddlewareFactory<TPath, TVars, TBindings>;
   /**
    * Loads a value from a path param and adds it to the context as the var `key`. Returns a
    * new context, as `.middleware()` does. The new middleware gives the value of `param` to
@@ -151,8 +105,8 @@ export interface RouteContext<TPath extends string, TVars extends object> {
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue>,
-  ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }>;
+    load: BindLoader<_TLoaderVars, TValue, TBindings>,
+  ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }, TBindings>;
   /**
    * Internal: the path relative to the parent, which `makeRouter` uses as the router's
    * base path so that mounting under the parent does not prefix the parent path twice.
@@ -163,38 +117,32 @@ export interface RouteContext<TPath extends string, TVars extends object> {
   readonly segment?: string;
 }
 
-/** `true` if `T` is `any`. */
-type IsAny<T> = 0 extends 1 & T ? true : false;
-
-/**
- * The `Variables` that a middleware declares. An untyped handler (`Env` or `any`
- * variables) gives `{}`.
- *
- * @internal Exported for declaration emit; not part of the public API.
- */
-export type HandlerVars<THandler> = EnvVars<HandlerEnv<THandler>>;
-
 export interface DefineRootContextFn {
   /**
-   * The vars come from the type argument, or from the `Variables` of the middlewares when
-   * they all declare the same vars. Without `middlewares`, the vars are `{}`. Must stay first, so that TypeScript tries it before the
-   * fold signature. A call with one or two explicit type arguments always resolves here. A
-   * middleware typed `MiddlewareHandler<{ Variables: any }>` in the array makes the vars
-   * `any`, because this signature then matches with `TVars = any`.
+   * The vars and the bindings come from the type arguments, or from the `Variables` and the
+   * `Bindings` of the middlewares when they all declare the same ones. Without
+   * `middlewares`, the vars and the bindings are `{}`. Must stay first, so that TypeScript
+   * tries it before the fold signature. A call with one, two or three explicit type
+   * arguments always resolves here. A middleware typed `MiddlewareHandler<{ Variables: any }>`
+   * in the array makes the vars `any`, because this signature then matches with
+   * `TVars = any`. With a `TBindings` type argument, each typed middleware in the array must
+   * declare these `Bindings`: Hono's `Context` is invariant in its `Env`, so a middleware
+   * typed only with `Variables` does not fit. Add such a middleware with `.middleware()`.
    */
-  <TPath extends string, TVars extends object = {}>(
+  <TPath extends string, TVars extends object = {}, TBindings extends object = {}>(
     path: TPath,
-    middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
-  ): RouteContext<TPath, TVars>;
+    middlewares?: MiddlewareHandler<RouterEnv<TVars, TBindings>>[],
+  ): RouteContext<TPath, TVars, TBindings>;
   /**
-   * Fold: the vars are the intersection of the `Variables` of each middleware, so typed
-   * middlewares with different vars can share the array. TypeScript can also select this
-   * signature for an array of one kind (plain handlers, untyped `createMiddleware`, a
-   * `MiddlewareHandler[]` variable, a spread); the vars are then the same as from the first
-   * signature. The third type parameter is not used and has no default, so one or two
-   * explicit type arguments cannot select this signature. Three explicit type arguments
-   * (`<'/x', [typeof a, typeof b], unknown>`) select it; that compiles but has no use.
-   * `CheckRootArray` rejects conflicting var types and a non-tuple array of mixed
+   * Fold: the vars are the intersection of the `Variables` of each middleware, and the
+   * bindings are the intersection of their `Bindings`. Thus typed middlewares with different
+   * vars can share the array. TypeScript can also select this signature for an array of one
+   * kind (plain handlers, untyped `createMiddleware`, a `MiddlewareHandler[]` variable, a
+   * spread); the vars are then the same as from the first signature. The third and fourth
+   * type parameters are not used and have no default, so one, two or three explicit type
+   * arguments cannot select this signature. Four explicit type arguments
+   * (`<'/x', [typeof a, typeof b], unknown, unknown>`) select it; that compiles but has no
+   * use. `CheckRootArray` rejects conflicting var types and a non-tuple array of mixed
    * middlewares; a readonly tuple (`as const`) is accepted.
    *
    * An inline arrow in an array with typed middlewares that declare different vars does not
@@ -202,24 +150,31 @@ export interface DefineRootContextFn {
    * an error in it. Write such a handler with `createMiddleware`, or add it with
    * `.middleware()`.
    */
-  <TPath extends string, TMws extends readonly MiddlewareHandler[], _NoExplicitTypeArgs>(
+  <
+    TPath extends string,
+    TMws extends readonly MiddlewareHandler[],
+    _NoExplicitTypeArgs,
+    _NoExplicitTypeArgs2,
+  >(
     path: TPath,
     middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
-  ): RouteContext<TPath, FoldVars<TMws>>;
+  ): RouteContext<TPath, FoldVars<TMws>, FoldBindings<TMws>>;
 }
 
 /**
- * Anything carrying a path literal and a vars phantom: a base or an extended context.
+ * Anything carrying a path literal and a vars phantom: a base or an extended context. A
+ * context with a `bindings` phantom also gives its bindings to its children.
  *
  * @internal Exported for declaration emit; not part of the public API.
  */
-export type ParentContext = { path: string; vars: object };
+export type ParentContext = { path: string; vars: object; bindings?: object };
 
 /**
  * The Hono `Env` of a middleware that runs on `TContext` and sets `TNewVars`. Pass it to
  * `createMiddleware` from `hono/factory` to build a middleware outside the context chain:
  * `createMiddleware<ContextEnv<typeof ctx, { session: Session }>>(...)`. The middleware then
- * reads the vars of the context and sets the new vars, all typed.
+ * reads the vars of the context and sets the new vars, all typed. When the context has
+ * bindings, the `Env` also has them as `Bindings`, so `c.env` is typed.
  *
  * The type-only {@link READS} key records the vars of `TContext`, which the middleware
  * reads. The type-only {@link SETS} key records `TNewVars`, which the middleware sets. Thus
@@ -230,19 +185,43 @@ export type ParentContext = { path: string; vars: object };
  * explicit form does not accept it.
  */
 export type ContextEnv<TContext extends ParentContext, TNewVars extends object = {}> = {
+  [
+    K in keyof FullContextEnv<TContext, TNewVars> as K extends 'Bindings'
+      ? [keyof ContextBindings<TContext>] extends [never]
+        ? never
+        : K
+      : K
+  ]: FullContextEnv<TContext, TNewVars>[K];
+};
+
+/**
+ * {@link ContextEnv} with a `Bindings` key in all cases. `ContextEnv` maps over it and drops
+ * the key when the bindings are empty. A mapped type keeps the `ContextEnv` alias in the
+ * declarations of a consumer. A conditional type gives an object type without the alias,
+ * and the declaration of the consumer then cannot name `READS` and `SETS` (TS4023).
+ *
+ * @internal Exported for declaration emit; not part of the public API.
+ */
+export type FullContextEnv<TContext extends ParentContext, TNewVars extends object> = {
+  Bindings: ContextBindings<TContext>;
   Variables: TContext['vars'] & TNewVars;
   readonly [READS]: TContext['vars'];
   readonly [SETS]: TNewVars;
 };
 
 /**
- * The function that the curried `defineChildContext<typeof parent>()` returns.
+ * The function that the curried `defineChildContext<typeof parent>()` returns. The child
+ * has the vars and the bindings of the parent.
  *
  * @internal Exported for declaration emit; not part of the public API.
  */
 export type ChildRouteFn<TParentContext extends ParentContext> = <TPath extends string>(
   path: TPath,
-) => RouteContext<ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
+) => RouteContext<
+  ChildPath<TParentContext['path'], TPath>,
+  TParentContext['vars'],
+  ContextBindings<TParentContext>
+>;
 
 /**
  * Internal: resolves to `TFn` for any `TParentContext`, but stays a deferred conditional type
@@ -261,16 +240,21 @@ export type DeferredChildContextFn<TParentContext, TFn> = [TParentContext] exten
 
 export interface DefineChildContextFn {
   /**
-   * Value form: infers the parent's path and vars from the `parent` value. The child's
-   * runtime `path` is `parent.path` joined with `path` by `/` (the full path when every ancestor is a root
-   * or a value-form child; a parent `'/'` adds no extra slash). Needs the parent value at
-   * module load, so use the curried form when the parent module imports the child's
-   * router (a circular import).
+   * Value form: infers the parent's path, vars and bindings from the `parent` value. The
+   * child's runtime `path` is `parent.path` joined with `path` by `/` (the full path when
+   * every ancestor is a root or a value-form child; a parent `'/'` adds no extra slash).
+   * Needs the parent value at module load, so use the curried form when the parent module
+   * imports the child's router (a circular import).
    */
-  <TPath extends string, TParentPath extends string, TParentVars extends object>(
-    parent: { path: TParentPath; vars: TParentVars },
+  <
+    TPath extends string,
+    TParentPath extends string,
+    TParentVars extends object,
+    TParentBindings extends object = {},
+  >(
+    parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
     path: TPath,
-  ): RouteContext<ChildPath<TParentPath, TPath>, TParentVars>;
+  ): RouteContext<ChildPath<TParentPath, TPath>, TParentVars, TParentBindings>;
   /**
    * Curried form: the parent is passed as a type only, so the child module needs no
    * runtime import of the parent (safe in a circular import). The child's runtime

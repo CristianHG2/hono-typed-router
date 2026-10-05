@@ -15,6 +15,8 @@ type DeclaredRoute = {
   attached: boolean;
   /** `true` after `openapi` of `owner` registered the route. */
   registered: boolean;
+  /** `true` when the `defineRoute` of `owner` returned the route, `false` for another config. */
+  readonly declared: boolean;
 };
 
 /**
@@ -32,25 +34,52 @@ export const recordRoute = (
   owner: OpenAPIHono,
   mws: readonly MiddlewareHandler[],
 ) => {
-  const entry: DeclaredRoute = { route, owner, mws, attached: false, registered: false };
-  const list = BY_ROUTER.get(owner);
+  const entry: DeclaredRoute = {
+    route,
+    owner,
+    mws,
+    attached: false,
+    registered: false,
+    declared: true,
+  };
 
   DECLARED.set(route, entry);
+  addEntry(entry);
+};
+
+const addEntry = (entry: DeclaredRoute) => {
+  const list = BY_ROUTER.get(entry.owner);
 
   if (list === undefined) {
-    BY_ROUTER.set(owner, [entry]);
+    BY_ROUTER.set(entry.owner, [entry]);
   } else {
     list.push(entry);
   }
 };
 
+/** `true` when `app` has a record of the config `route`. */
+const isRecorded = (app: OpenAPIHono, route: RouteConfig): boolean =>
+  BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
+
+/** A route config that `router.openapi` registered. */
+export type RegisteredRoute = {
+  readonly route: RouteConfig;
+  /** `true` when the `defineRoute` of the router returned the config. */
+  readonly declared: boolean;
+};
+
 /**
- * The route configs that the `defineRoute` of `router` returned and that `router.openapi`
- * registered, in declaration order. A route from `createRoute`, or a route registered on
- * another app, is not in the list.
+ * The route configs that `router.openapi` registered, in registration order. A config from
+ * the `defineRoute` of `router` is in the list once, also when `openapi` registered it twice.
+ * On a router maker without options, `openapi` also records each other config once: a
+ * `createRoute` config, or a config without route middlewares from the `defineRoute` of
+ * another router. A route that bypasses the wrapper, such as a route on
+ * `app.basePath(...)`, or a raw `app.get()`, is not in the list.
  */
-export const registeredRoutes = (router: OpenAPIHono): RouteConfig[] =>
-  (BY_ROUTER.get(router) ?? []).filter((entry) => entry.registered).map((entry) => entry.route);
+export const registeredRoutes = (router: OpenAPIHono): RegisteredRoute[] =>
+  (BY_ROUTER.get(router) ?? [])
+    .filter((entry) => entry.registered)
+    .map(({ route, declared }) => ({ route, declared }));
 
 /**
  * Throws when a route declared on `router` has route middlewares that `openapi` did not
@@ -77,15 +106,32 @@ export const assertRoutesAttached = (
 type OpenapiFn = (...args: never[]) => object;
 
 /**
- * Wraps the `openapi` method of an app without `createRouter` options. Such an app accepts
- * every route config, as before. A config from the `defineRoute` of another app that has
- * route middlewares throws, because this app would register the route without them.
+ * Wraps the `openapi` method of an app without `createRouter` options that change a route.
+ * Such an app accepts every route config, as before. A config from the `defineRoute` of
+ * another app that has route middlewares throws, because this app would register the route
+ * without them.
+ *
+ * The wrapper records a `createRoute` config, and a config without route middlewares from
+ * the `defineRoute` of another app, under this app. So the duplicate check of
+ * {@link registeredRoutes} sees them. The record of the other app does not change. A config
+ * that this app registers two times is recorded once, as a `defineRoute` config is.
  */
 export const attachOnOpenapi = (app: OpenAPIHono) => {
   wrapOpenapi(app, (route) => {
     const entry = DECLARED.get(route);
 
-    if (entry !== undefined && (entry.owner === app || entry.mws.length > 0)) {
+    if (entry === undefined || (entry.owner !== app && entry.mws.length === 0)) {
+      if (isRecorded(app, route)) return;
+
+      addEntry({
+        route,
+        owner: app,
+        mws: [],
+        attached: true,
+        registered: true,
+        declared: false,
+      });
+    } else {
       attach(app, route, entry);
     }
   });

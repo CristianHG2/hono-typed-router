@@ -1302,3 +1302,34 @@ declare const findMembership: (
   expectTypeOf(defineChildRoute).toEqualTypeOf(defineChildContext);
   expectTypeOf(thingsContext.path).toEqualTypeOf<'/api/things'>();
 }
+
+// usage.md "Cloudflare bindings": the bindings of the root context type `c.env` in a handler.
+{
+  interface D1Database {
+    prepare: (query: string) => { first: <T>(column: string) => Promise<T | null> };
+  }
+
+  const makeRouter = createRouter();
+
+  interface Env {
+    Bindings: { DB: D1Database };
+  }
+
+  const workerContext = defineRootContext<'/api', {}, Env['Bindings']>('/api');
+  const statsResponse = jsonResponse(z.object({ users: z.number() }), 'User count');
+
+  const statsRouter = makeRouter(
+    defineChildContext(workerContext, '/stats'),
+    ({ app, defineRoute }) =>
+      app.openapi(defineRoute('get', { responses: { 200: statsResponse } }), async (c) => {
+        const users = await c.env.DB.prepare('SELECT count(*) AS n FROM users').first<number>('n');
+
+        return c.json({ users: users ?? 0 }, 200);
+      }),
+  );
+
+  const app = mountRouter(workerContext, [statsRouter]);
+
+  expectTypeOf(workerContext.bindings.DB).toEqualTypeOf<D1Database>();
+  expectTypeOf(app.fetch).toBeFunction();
+}

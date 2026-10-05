@@ -472,12 +472,14 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<keyof typeof twice.vars>().toEqualTypeOf<'session'>();
 
   // A middleware with only `Bindings`, or with `Bindings` and `Variables`, fits. The
-  // context gets the `Variables`; the `Bindings` are not added.
+  // context gets the `Variables`, and the `Bindings` are added to its bindings.
   const bindingsOnly = createMiddleware<{ Bindings: { DB: string } }>(async (_c, next) => {
     await next();
   });
 
-  expectTypeOf(api.middleware(bindingsOnly).vars).toEqualTypeOf<{ session: Session }>();
+  const withBindings = api.middleware(bindingsOnly);
+  expectTypeOf(withBindings.vars).toEqualTypeOf<{ session: Session }>();
+  expectTypeOf(withBindings.bindings).toEqualTypeOf<{ DB: string }>();
 
   const bindingsAndVars = createMiddleware<{
     Bindings: { DB: string };
@@ -488,6 +490,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 
   const withDb = api.middleware(bindingsAndVars);
   expectTypeOf<keyof typeof withDb.vars>().toEqualTypeOf<'session' | 'db'>();
+  expectTypeOf(withDb.bindings).toEqualTypeOf<{ DB: string }>();
 
   // A `ContextEnv` with `Bindings` keeps the read marker.
   const readsWithBindings = createMiddleware<
@@ -499,6 +502,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 
   const withTenant = api.middleware(readsWithBindings);
   expectTypeOf<keyof typeof withTenant.vars>().toEqualTypeOf<'session' | 'tenantId'>();
+  expectTypeOf(withTenant.bindings).toEqualTypeOf<{ DB: string }>();
 
   // An inline arrow keeps a typed `c` without a type argument.
   api.middleware(async (c, next) => {
@@ -631,7 +635,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const withAnyEnv = defineRootContext('/api', [a, anyEnv, b]);
   expectTypeOf<Flat<typeof withAnyEnv.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
-  // A middleware that declares only `Bindings` adds no vars.
+  // A middleware that declares only `Bindings` adds no vars. The context gets its bindings.
   const bindingsOnly: MiddlewareHandler<{ Bindings: { KV: string } }> = async (_c, next) => {
     await next();
   };
@@ -639,9 +643,14 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const fromBindings = defineRootContext('/api', [bindingsOnly]);
   expectTypeOf<IsAny<typeof fromBindings.vars>>().toEqualTypeOf<false>();
   expectTypeOf<Flat<typeof fromBindings.vars>>().toEqualTypeOf<{}>();
+  expectTypeOf(fromBindings.bindings).toEqualTypeOf<{ KV: string }>();
 
-  // Three explicit type arguments select the fold signature. This compiles but has no use.
-  const explicitFold = defineRootContext<'/api', [typeof a, typeof b], unknown>('/api', [a, b]);
+  // Four explicit type arguments select the fold signature. This compiles but has no use.
+  const explicitFold = defineRootContext<'/api', [typeof a, typeof b], unknown, unknown>('/api', [
+    a,
+    b,
+  ]);
+
   expectTypeOf<Flat<typeof explicitFold.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
   // An inline arrow together with typed middlewares that declare different vars: the vars

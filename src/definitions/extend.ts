@@ -6,14 +6,8 @@ import {
 } from './lib';
 import type { ChildPath } from './path';
 import type { CheckRootArray, FoldVars } from './root-array';
-import type {
-  CheckMiddlewareFits,
-  DeferredChildContextFn,
-  HandlerSets,
-  NoRedeclare,
-  ParentContext,
-  RouteContext,
-} from './types';
+import type { CheckMiddlewareFits, HandlerSets } from './env';
+import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './types';
 
 /**
  * Higher-kinded slot used to pass an (unapplied) two-parameter context interface

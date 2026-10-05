@@ -26,7 +26,8 @@ type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
  * `createRoute` config or for a config from another router, because the options do not
  * apply to it. Set `hide` and the other route keys in `defineRoute`: a copy such as
  * `{ ...route, hide: true }` is a different config and `openapi` does not accept it. A
- * `createRouter()` without options accepts every config.
+ * `createRouter()` without options accepts every config, and the duplicate check of
+ * `makeRouter` also reads a `createRoute` config.
  *
  * When both `routeDefaults` and the deprecated `base` are set, `routeDefaults` wins
  * at runtime and at the type level.

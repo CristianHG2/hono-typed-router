@@ -966,3 +966,79 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(testClient(app).api.things.$get).toBeFunction();
   expectTypeOf(testClient(app).api.things[':id'].$delete).toBeFunction();
 }
+
+// Bindings: a context without bindings gives the same app type as before bindings existed. A
+// context with bindings gives `c.env` its bindings in each route handler.
+{
+  interface Db {
+    query: (sql: string) => string;
+  }
+
+  interface Bindings {
+    DB: Db;
+  }
+
+  interface SessionVars {
+    userId: string;
+  }
+
+  const session = createMiddleware<{ Variables: SessionVars }>(async (c, next) => {
+    c.set('userId', 'u1');
+    await next();
+  });
+
+  const auth = createMiddleware<{ Bindings: Bindings; Variables: SessionVars }>(async (c, next) => {
+    c.set('userId', c.env.DB.query('select 1'));
+    await next();
+  });
+
+  const makeRouter = createRouter();
+  const plain = defineRootContext('/api', [session]);
+
+  makeRouter(plain, ({ app, router }) => {
+    expectTypeOf(app).toEqualTypeOf<OpenAPIHono<{ Variables: SessionVars }>>();
+    expectTypeOf(router).toEqualTypeOf<OpenAPIHono<{ Variables: SessionVars }>>();
+  });
+
+  expectTypeOf(makeRouter(plain, () => {})()).toEqualTypeOf<
+    OpenAPIHono<{ Variables: SessionVars }>
+  >();
+  expectTypeOf(makeRouter(plain, () => {}, [])()).toEqualTypeOf<
+    OpenAPIHono<{ Variables: SessionVars }>
+  >();
+  expectTypeOf(mountRouter(plain, [])).toEqualTypeOf<OpenAPIHono<{ Variables: SessionVars }>>();
+
+  const api = defineRootContext('/api', [auth]);
+
+  makeRouter(api, ({ app }) => {
+    expectTypeOf(app).toEqualTypeOf<OpenAPIHono<{ Bindings: Bindings; Variables: SessionVars }>>();
+  });
+
+  const things = makeRouter(defineChildContext(api, '/things'), ({ app, defineRoute }) =>
+    app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) => {
+      expectTypeOf(c.env.DB).toEqualTypeOf<Db>();
+
+      return c.json({ ok: c.env.DB.query(c.var.userId) === '' }, 200);
+    }),
+  );
+
+  const curried = makeRouter(defineChildContext<typeof api>()('/items'), ({ app, defineRoute }) =>
+    app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+      c.json({ ok: c.env.DB.query('select 1') === '' }, 200),
+    ),
+  );
+
+  const app = mountRouter(api, [things, curried]);
+  expectTypeOf(app).toExtend<OpenAPIHono<{ Bindings: Bindings; Variables: SessionVars }, any>>();
+
+  const node = makeRouter(api, () => {}, [things]);
+  expectTypeOf(node()).toExtend<OpenAPIHono<{ Bindings: Bindings; Variables: SessionVars }, any>>();
+
+  // An explicit third type argument gives the same app.
+  const explicit = defineRootContext<'/api', {}, Bindings>('/api').middleware(session);
+  makeRouter(explicit, ({ app }) => {
+    expectTypeOf(app).toEqualTypeOf<
+      OpenAPIHono<{ Bindings: Bindings; Variables: {} & SessionVars }>
+    >();
+  });
+}

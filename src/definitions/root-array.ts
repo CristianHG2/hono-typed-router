@@ -1,4 +1,4 @@
-import type { HandlerReads, HandlerSets } from './types';
+import type { HandlerBindings, HandlerReads, HandlerSets } from './env';
 
 // The types of the fold signature of `defineRootContext`: the vars of a root array, and the
 // checks of the array.
@@ -27,6 +27,25 @@ export type FoldVars<TMws extends readonly unknown[]> = TMws extends readonly [
       : [TMws[number]] extends [never]
         ? {}
         : HandlerSets<TMws[number]>;
+
+/**
+ * The intersection of the `Bindings` that each middleware in a tuple declares (see
+ * {@link HandlerBindings}). The tuple forms are the same as for {@link FoldVars}.
+ *
+ * @internal Exported for declaration emit; not part of the public API.
+ */
+export type FoldBindings<TMws extends readonly unknown[]> = TMws extends readonly [
+  infer THead,
+  ...infer TRest,
+]
+  ? HandlerBindings<THead> & FoldBindings<TRest>
+  : TMws extends readonly [...infer TInit, infer TLast]
+    ? FoldBindings<TInit> & HandlerBindings<TLast>
+    : TMws extends readonly []
+      ? {}
+      : [TMws[number]] extends [never]
+        ? {}
+        : HandlerBindings<TMws[number]>;
 
 /**
  * `unknown`, or a message when a `ContextEnv` middleware in a root array reads a var that no
@@ -61,18 +80,34 @@ type IsMixed<TSets, TAll = TSets> = true extends (
   ? true
   : false;
 
+/** What a conflict check compares: the vars that a middleware sets, or its bindings. */
+type Kind = 'var' | 'binding';
+
+type Declared<THandler, TKind extends Kind> = TKind extends 'var'
+  ? HandlerSets<THandler>
+  : HandlerBindings<THandler>;
+
+type Fold<TMws extends readonly unknown[], TKind extends Kind> = TKind extends 'var'
+  ? FoldVars<TMws>
+  : FoldBindings<TMws>;
+
 /**
- * The keys that two middlewares of the array set with different types. A middleware's var
- * type must be assignable to the folded var type (the intersection of all its types), which
- * is true only when all the types are the same. When the fold is `never` (two literal types
- * of one key, such as `{ kind: 'a' }` and `{ kind: 'b' }`), each pair of middlewares is
- * compared instead, so that only the conflicting keys show.
+ * The keys that two middlewares of the array declare with different types: vars for
+ * `'var'`, bindings for `'binding'`. A middleware's type of a key must be assignable to the
+ * folded type (the intersection of all its types), which is true only when all the types are
+ * the same. When the fold is `never` (two literal types of one key, such as `{ kind: 'a' }`
+ * and `{ kind: 'b' }`), each pair of middlewares is compared instead, so that only the
+ * conflicting keys show.
  */
-type ConflictKeys<TMws extends readonly unknown[], TFold = FoldVars<TMws>> = [TFold] extends [never]
-  ? PairConflictKeys<TMws[number]>
+type ConflictKeys<
+  TMws extends readonly unknown[],
+  TKind extends Kind,
+  TFold = Fold<TMws, TKind>,
+> = [TFold] extends [never]
+  ? PairConflictKeys<TMws[number], TKind>
   : TMws[number] extends infer THandler
     ? THandler extends unknown
-      ? ConflictKeysOf<HandlerSets<THandler>, TFold>
+      ? ConflictKeysOf<Declared<THandler, TKind>, TFold>
       : never
     : never;
 
@@ -80,9 +115,9 @@ type ConflictKeysOf<TSets, TFold> = {
   [K in keyof TSets]-?: [TSets[K]] extends [TFold[K & keyof TFold]] ? never : K;
 }[keyof TSets];
 
-type PairConflictKeys<THandler, TOther = THandler> = THandler extends unknown
+type PairConflictKeys<THandler, TKind extends Kind, TOther = THandler> = THandler extends unknown
   ? TOther extends unknown
-    ? DiffKeys<HandlerSets<THandler>, HandlerSets<TOther>>
+    ? DiffKeys<Declared<THandler, TKind>, Declared<TOther, TKind>>
     : never
   : never;
 
@@ -96,6 +131,7 @@ type DiffKeys<TA, TB> = {
  * - The array is not a tuple, and its element type is a union of middlewares with different
  *   vars (`const list = [a, b]`). The fold would give a union of the vars.
  * - Two middlewares set the same var with different types. The same type is allowed.
+ * - Two middlewares declare the same binding with different types. The same type is allowed.
  * - A `ContextEnv` middleware reads a var that no middleware of the array sets.
  *
  * @internal Exported for declaration emit; not part of the public API.
@@ -106,6 +142,14 @@ export type CheckRootArray<TMws extends readonly unknown[]> = number extends TMw
     : CheckRootConflicts<TMws>
   : CheckRootConflicts<TMws>;
 
-type CheckRootConflicts<TMws extends readonly unknown[]> = [ConflictKeys<TMws>] extends [never]
+type CheckRootConflicts<TMws extends readonly unknown[]> = [ConflictKeys<TMws, 'var'>] extends [
+  never,
+]
+  ? CheckRootBindings<TMws>
+  : `Middlewares in the array declare the same var with different types: ${ConflictKeys<TMws, 'var'> & string}`;
+
+type CheckRootBindings<TMws extends readonly unknown[]> = [ConflictKeys<TMws, 'binding'>] extends [
+  never,
+]
   ? CheckRootReads<TMws>
-  : `Middlewares in the array declare the same var with different types: ${ConflictKeys<TMws> & string}`;
+  : `Middlewares in the array declare the same binding with different types: ${ConflictKeys<TMws, 'binding'> & string}`;

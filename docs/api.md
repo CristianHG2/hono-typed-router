@@ -11,20 +11,30 @@ Every runtime error of the library starts with `hono-typed-router:` and the name
 <!-- doc-check: skip -->
 
 ```ts
-// 1. Explicit or uniform vars.
-function defineRootContext<TPath extends string, TVars extends object = {}>(
+// 1. Explicit or uniform vars and bindings.
+function defineRootContext<
+  TPath extends string,
+  TVars extends object = {},
+  TBindings extends object = {},
+>(
   path: TPath,
-  middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
-): RouteContext<TPath, TVars>;
-// 2. Fold: the intersection of the vars that each middleware sets.
+  middlewares?: MiddlewareHandler<RouterEnv<TVars, TBindings>>[],
+): RouteContext<TPath, TVars, TBindings>;
+// 2. Fold: the intersection of the vars that each middleware sets, and of its bindings.
 function defineRootContext<
   TPath extends string,
   TMws extends readonly MiddlewareHandler[],
   _NoExplicitTypeArgs,
+  _NoExplicitTypeArgs2,
 >(
   path: TPath,
   middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
-): RouteContext<TPath, FoldVars<TMws>>;
+): RouteContext<TPath, FoldVars<TMws>, FoldBindings<TMws>>;
+
+// The `Env` of the middlewares: `Bindings` only when the bindings are not empty.
+type RouterEnv<V extends object, B extends object> = [keyof B] extends [never]
+  ? { Variables: V }
+  : { Bindings: B; Variables: V };
 ```
 
 `defineRootRoute` is the deprecated name of `defineRootContext` (removed in 2.0). It holds the same function.
@@ -35,7 +45,16 @@ The vars are inferred from the array. Untyped middlewares (`createMiddleware(han
 
 TypeScript tries signature 1 first. Signature 1 accepts a call with explicit type arguments, such as `defineRootContext<'/api', AVars>('/api', [a])`, or with middlewares that all declare the same `Variables`. Signature 2 accepts typed middlewares with different `Variables`. TypeScript can also select signature 2 for an array of one kind: plain handlers, untyped `createMiddleware` handlers, a `MiddlewareHandler[]` variable, or a spread. For these arrays, signature 2 gives the same vars as signature 1.
 
-One or two explicit type arguments always select signature 1. The third type parameter of signature 2 has no default. Thus, three explicit type arguments select signature 2, for example `defineRootContext<'/api', [typeof a, typeof b], unknown>('/api', [a, b])`. This call compiles, but it has no use. The `defineRootContext` of `extendRouteContext` has a fourth type parameter, `_TVars`, which is internal. Four explicit type arguments set the vars to the fourth argument, and nothing checks them. Do not use this form.
+One, two, or three explicit type arguments always select signature 1. The third and fourth type parameters of signature 2 have no default. Thus, four explicit type arguments select signature 2, for example `defineRootContext<'/api', [typeof a, typeof b], unknown, unknown>('/api', [a, b])`. This call compiles, but it has no use.
+
+The `defineRootContext` of `extendRouteContext` has no bindings slot. One or two explicit type arguments select its signature 1, and three explicit type arguments select its signature 2. Its signature 2 has a fourth type parameter, `_TVars`, which is internal. Four explicit type arguments set the vars to the fourth argument, and nothing checks them. Do not use this form.
+
+The bindings are the Cloudflare `Bindings` of the app: the type of `c.env`. Declare them on the root context. There are two ways:
+
+- Give the bindings as the third type argument: `defineRootContext<'/api', SessionVars, Env['Bindings']>('/api', [auth])`. Each typed middleware in the array must declare the same `Bindings`. Hono's `Context<E>` accepts only an `Env` with the same `Bindings` and `Variables`, not a wider or narrower one. Thus a middleware typed only with `Variables` does not fit, and the call is an error. Add such a middleware with `.middleware()`. Untyped middlewares fit.
+- Give middlewares that declare `Bindings` in the array. The bindings of the context are the intersection of their `Bindings`, as for the vars. A middleware that declares only `Bindings` adds no vars.
+
+Without bindings, the context, the app, and `ContextEnv` have the same types as before bindings existed, and `c.env` is `unknown`. A middleware typed with `Bindings` in the root array or in `.middleware()` gives bindings to the context. Then the `Env` of the app is `{ Bindings: B; Variables: V }`, so a handler or a helper typed only `{ Variables: V }` is an error. Type it `{ Bindings: B; Variables: V }`. Children get the bindings of their parent. Bindings do not go up to the parent: Hono's `app.route()` keeps the `Env` of the parent app. Thus declare the bindings on the root context.
 
 This example builds a root context from one untyped and two typed middlewares. `timing` is an untyped `createMiddleware` handler, and `RequestIdVars` and `LogVars` are interfaces:
 
@@ -67,6 +86,8 @@ Untyped middlewares, such as `cors()` and `logger()` from Hono, or `every()` and
 
 Two middlewares that declare the same var with different types are an error: `Middlewares in the array declare the same var with different types: <keys>`. A narrower type, such as `'x'` and `string`, is also a different type. Two middlewares that declare the same var with the same type are correct.
 
+Two middlewares that declare the same binding with different types are also an error: `Middlewares in the array declare the same binding with different types: <keys>`. The same binding with the same type is correct. `.middleware()` adds the `Bindings` of a middleware without this check.
+
 Signature 2 needs a tuple: an array literal, or an array with `as const`. The element type of an array variable such as `const list = [a, b]` is the union of its middlewares. Thus the fold cannot find which middleware sets which var. If the middlewares of the variable declare different vars, the error is `Pass the middlewares as a tuple literal or as const: an array variable with mixed middlewares has one union element type`. A spread of such a variable, `[...list, c]`, is also an error, but TypeScript shows the error on each element without this message. An array variable of one middleware type, or of untyped middlewares, is correct.
 
 Context paths must use Hono `:param` syntax. This rule applies to `defineRootContext`, to both forms of `defineChildContext`, and to the forms that `extendRouteContext` returns. A path segment that starts with `{` throws a `TypeError` when you define the context:
@@ -87,22 +108,27 @@ function defineChildContext<
   TPath extends string,
   TParentPath extends string,
   TParentVars extends object,
+  TParentBindings extends object = {},
 >(
-  parent: { path: TParentPath; vars: TParentVars },
+  parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
   path: TPath,
-): RouteContext<`${TParentPath}${TPath}`, TParentVars>;
+): RouteContext<`${TParentPath}${TPath}`, TParentVars, TParentBindings>;
 
 // Curried form
-function defineChildContext<TParentContext extends { path: string; vars: object }>(): <
-  TPath extends string,
->(
+function defineChildContext<
+  TParentContext extends { path: string; vars: object; bindings?: object },
+>(): <TPath extends string>(
   path: TPath,
-) => RouteContext<`${TParentContext['path']}${TPath}`, TParentContext['vars']>;
+) => RouteContext<
+  `${TParentContext['path']}${TPath}`,
+  TParentContext['vars'],
+  ContextBindings<TParentContext>
+>;
 ```
 
 `defineChildRoute` is the deprecated name of `defineChildContext` (removed in 2.0). It holds the same function, in both forms.
 
-Creates a child `RouteContext`. Its path type is the path of the parent joined with `path` by `/`. Its vars are the vars of the parent. The join adds no second slash after a parent that ends in `/` (`'/'` + `'/things'` is `/things`). The join inserts one slash when `path` has no leading `/` (`'/api'` + `'things'` is `/api/things`). Any `{ path; vars }` shape is accepted as the parent, including extended contexts. Neither form copies the middlewares of the parent. Mounting the router of the child under the router of the parent runs them.
+Creates a child `RouteContext`. Its path type is the path of the parent joined with `path` by `/`. Its vars and its bindings are the vars and the bindings of the parent. The join adds no second slash after a parent that ends in `/` (`'/'` + `'/things'` is `/things`). The join inserts one slash when `path` has no leading `/` (`'/api'` + `'things'` is `/api/things`). Any `{ path; vars }` shape is accepted as the parent, including extended contexts. A shape without `bindings` gives no bindings. Neither form copies the middlewares of the parent. Mounting the router of the child under the router of the parent runs them.
 
 - The value form infers the path and the vars of the parent from the `parent` value. The runtime `path` of the child is `parent.path` joined with `path` by `/`. This is the full path when every ancestor is a root or a value-form child. A curried ancestor contributes only its segment. The relative part stays in `segment` for mounting. The child also records the context that it was created from. Its router can mount under the router of that context. It can also mount under the router of a context derived from it with `.middleware()` (the same lineage, with more middleware). Mounting it under any other context throws a `TypeError` that names both paths (see the mount guard under [`makeRouter`](#makeroutercontext-callback-children)). Examples of other contexts are an ancestor (the parent before a `.middleware()` call), a sibling `.middleware()` branch, and an unrelated context.
 - The curried form takes the parent as a type only. So the module of the child needs only an `import type` of the parent. Use it when the module of the parent imports the router of the child (a circular import). There the value form reads an uninitialized parent. The runtime `path` of the child is only `path`, and its type is still the full path. When its router mounts under the router of the parent, `meta.path` is still the full path. The curried form is not deprecated. Nothing checks where you mount it. Under the wrong parent router, the child serves its routes at the wrong URL, and no error tells you this.
@@ -121,38 +147,41 @@ There are three ways to make a child context:
 
 The [project layout](./usage.md#project-layout) of the usage guide uses the curried form in each file.
 
-## `RouteContext<TPath, TVars>`
+## `RouteContext<TPath, TVars, TBindings>`
 
 <!-- doc-check: skip -->
 
 ```ts
-interface RouteContext<TPath extends string, TVars extends object> {
+interface RouteContext<TPath extends string, TVars extends object, TBindings extends object = {}> {
   path: TPath;
   vars: TVars;
+  bindings: TBindings;
   middlewares: MiddlewareHandler[];
-  middleware: MiddlewareFactory<TPath, TVars>;
+  middleware: MiddlewareFactory<TPath, TVars, TBindings>;
   bind: <TKey extends string, TValue, _TLoaderVars extends TVars = TVars>(
     key: BindKey<TKey, _TLoaderVars>,
     param: BindParam<TPath>,
-    load: BindLoader<_TLoaderVars, TValue>,
-  ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }>;
+    load: BindLoader<_TLoaderVars, TValue, TBindings>,
+  ) => RouteContext<TPath, TVars & { [K in TKey]: NonNullable<Awaited<TValue>> }, TBindings>;
   readonly segment?: string; // internal
 }
 ```
 
 - `path`: the literal path string carried at the type level.
-- `vars`: a phantom value of the accumulated variables. It is useful only for type inspection.
+- `vars`: a phantom value of the accumulated variables, that is, a type-only value: it is `{}` at runtime. It is useful only for type inspection.
+- `bindings`: a phantom value of the bindings, the type of `c.env`. As for `vars`, it is `{}` at runtime, and it is useful only for type inspection. A context with bindings is not assignable to a `RouteContext` without them, because Hono's `Context<E>` accepts only an `Env` with the same `Bindings` and `Variables`. To accept each context, use the shape `{ path: string; vars: object }`.
 - `middlewares`: the runtime list of middlewares that `makeRouter` applies.
 - `segment`: internal. It is the path relative to the parent. `makeRouter` uses it as the base path of the router, so that mounting does not prefix the parent path twice. When it is absent, `makeRouter` uses `path`.
-- `middleware(handler)`: returns a new context with `handler` appended and the new vars merged into `TVars`. It has two signatures:
-  - The inline handler form is `.middleware<NewVars>(handler)`. `c` has `TVars & NewVars`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>"`. So a redeclaration fails on the type argument with a single error, and the handler keeps its contextual types. An inline arrow without a type argument adds `{}`, so give `NewVars` for inline arrows. An explicit type argument always selects this signature.
-  - The reusable typed middleware form is `.middleware(middleware)`, with no type argument. A middleware typed `createMiddleware<{ Variables: NewVars }>` reads no vars and sets `NewVars`, so it fits any context. A middleware typed `createMiddleware<ContextEnv<typeof ctx, NewVars>>` reads the vars of `ctx` and sets `NewVars`, so it fits `ctx` and each descendant with more vars. The context gets only the vars that the middleware sets. A set var that `TVars` already has, with the same type or a different type, is `Cannot redeclare existing var: <key>`. A read var that `TVars` does not have is `This middleware reads vars that the context does not have: <key>`. `Bindings` are not added to the vars.
+- `middleware(handler)`: returns a new context with `handler` appended and the new vars merged into `TVars`. It has three signatures:
+  - The inline handler form is `.middleware<NewVars>(handler)`. `c` has `TVars & NewVars`, and `c.env` has `TBindings`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>"`. So a redeclaration fails on the type argument with a single error, and the handler keeps its contextual types. An inline arrow without a type argument adds `{}`, so give `NewVars` for inline arrows. An explicit type argument always selects this signature.
+  - The reusable typed middleware form is `.middleware(middleware)`, with no type argument. A middleware typed `createMiddleware<{ Variables: NewVars }>` reads no vars and sets `NewVars`, so it fits any context. A middleware typed `createMiddleware<ContextEnv<typeof ctx, NewVars>>` reads the vars of `ctx` and sets `NewVars`, so it fits `ctx` and each descendant with more vars. The context gets only the vars that the middleware sets. A set var that `TVars` already has, with the same type or a different type, is `Cannot redeclare existing var: <key>`. A read var that `TVars` does not have is `This middleware reads vars that the context does not have: <key>`. The `Bindings` of the middleware are added to the bindings of the context. Nothing checks them, because the bindings come from the runtime configuration.
+  - On a context with bindings, a middleware typed only with `Variables` does not fit the inline signature, because its `Env` has no `Bindings`. A third signature accepts it and gives the same result as on a context without bindings. `c.env` stays typed in the next middlewares.
   - With a `ContextEnv` middleware, `.middleware<NewVars>(middleware)` is an error: the explicit type argument selects the inline signature, which does not accept a `ContextEnv` middleware. The message says that the type is missing the properties `[READS]` and `[SETS]`. Drop the type argument. For a set-only middleware on a context with vars, the explicit form is also an error.
   - A `ContextEnv` middleware that sets a var that the context already has is `Cannot redeclare existing var: <key>`. For example, `ContextEnv<typeof ctx, { count: number }>` on a context that has `count` gives this error.
   - A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars of the new context `any`, because the inline signature matches it.
-  - A middleware typed `{ Variables: SessionVars & TenantVars }` on a context typed `SessionVars` is correct, and it adds `TenantVars`. The inline signature matches the intersection that contains the vars of the context.
+  - A middleware typed `{ Variables: SessionVars & TenantVars }` on a context typed `SessionVars` is correct, and it adds `TenantVars`. The inline signature matches the intersection that contains the vars of the context. On a context with bindings, the third signature matches it in the same way.
   - Untyped middlewares, such as `cors()` and `logger()` from Hono, or `every()` and `some()` from `hono/combine`, add no vars.
-  - Known limit: the same middleware applied a second time is not detected. Its `Variables` equal `TVars`, so the inline signature matches it with `NewVars = {}`. The middleware then runs two times. `.middleware<SessionVars>(requireSession)` reports `Cannot redeclare existing var: session` instead. This is the only case where you give a type argument for a reusable middleware.
+  - Known limit: the same middleware applied a second time is not detected. Its `Variables` equal `TVars`, so the inline signature (or the third signature, on a context with bindings) matches it with `NewVars = {}`. The middleware then runs two times. `.middleware<SessionVars>(requireSession)` reports `Cannot redeclare existing var: session` instead. This is the only case where you give a type argument for a reusable middleware.
 
 For an inline arrow function, give the new vars as the type argument:
 
@@ -223,9 +252,9 @@ type BindKey<TKey extends string, TVars> = string extends TKey
       : TKey
     : 'Use one string literal for the key';
 type BindParam<TPath extends string> = Exclude<ParamKeys<TPath>, `${string}?`>;
-type BindLoader<TVars extends object, TValue> = (
+type BindLoader<TVars extends object, TValue, TBindings extends object = {}> = (
   value: string,
-  c: Context<{ Variables: TVars }>,
+  c: Context<RouterEnv<TVars, TBindings>>,
 ) => TValue;
 ```
 
@@ -233,7 +262,7 @@ Loads a value from a path param and adds it to the context as a new var. It is t
 
 - `key` is the name of the new var. It must be one string literal. A `string` key is a compile error: `Use a string literal for the key`. A union key is a compile error: `Use one string literal for the key`. A key that the context already has gives `Cannot redeclare existing var: <key>`.
 - `param` is a required param of the context path. An optional `:param?` is not accepted, because a request can match the path without it.
-- `load` gets the value of the param and `c`. `c.var` has the vars of the context. `load` returns the value, `null`, `undefined`, or a promise of one of these.
+- `load` gets the value of the param and `c`. `c.var` has the vars of the context, and `c.env` has its bindings. `load` returns the value, `null`, `undefined`, or a promise of one of these.
 - A loader that returns only `null`, `undefined`, `void`, or `never` compiles, and every request to the route gets a 404.
 - The new var has the type `NonNullable<Awaited<TValue>>`.
 - The third type parameter is internal. Do not pass it. Do not annotate `c` with other vars. If you annotate `c` with other vars, or pass the third type argument, the loader can read vars that the context does not have. This does not bypass the key check.
@@ -259,14 +288,22 @@ You can chain `.bind()` and `.middleware()`. Each step sees the vars of the step
 <!-- doc-check: skip -->
 
 ```ts
-type ContextEnv<TContext extends { path: string; vars: object }, TNewVars extends object = {}> = {
+// A context without bindings:
+type ContextEnv<TContext, TNewVars> = {
+  Variables: TContext['vars'] & TNewVars;
+  readonly [READS]: TContext['vars']; // type-only
+  readonly [SETS]: TNewVars; // type-only
+};
+// A context with the bindings `B`:
+type ContextEnv<TContext, TNewVars> = {
+  Bindings: B;
   Variables: TContext['vars'] & TNewVars;
   readonly [READS]: TContext['vars']; // type-only
   readonly [SETS]: TNewVars; // type-only
 };
 ```
 
-The Hono `Env` of a middleware that runs on `TContext` and sets `TNewVars`. Give it to `createMiddleware` from `hono/factory`. The middleware then reads the vars of the context and sets the new vars, all typed:
+The Hono `Env` of a middleware that runs on `TContext` and sets `TNewVars`. Give it to `createMiddleware` from `hono/factory`. The middleware then reads the vars of the context and sets the new vars, all typed. When the context has bindings, the `Env` also has them as `Bindings`, so `c.env` has a type. Without bindings, the `Env` has no `Bindings` key:
 
 ```ts
 interface TenantVars {
@@ -365,7 +402,7 @@ The type of `listThingsRoute.responses` has both `200` and `401`.
   - a `createRoute` config, or a copy such as `{ ...route, hide: true }`: `hono-typed-router: openapi: the GET route at '/api/things' was not declared with the defineRoute() of this router, so its routeMiddleware option does not apply. Declare it with defineRoute(method, config) inside this callback.` The message names the options that change a route, for example `routeDefaults, transformRoute options do not apply`.
   - a config from the `defineRoute` of another router: `hono-typed-router: openapi: the GET route was declared by the defineRoute() of another router. Its route middlewares were built for that router. Declare it with defineRoute(method, config) inside this callback.` A router without options also throws this error for a config of another router that has route middlewares.
 
-  Set `hide` and the other route keys in `defineRoute`. A `createRouter()` without options, or with options that change no route (`routeDefaults: {}`, `routeMiddleware: []`), accepts `createRoute` configs.
+  Set `hide` and the other route keys in `defineRoute`. A `createRouter()` without options, or with options that change no route (`routeDefaults: {}`, `routeMiddleware: []`), accepts `createRoute` configs. The duplicate check also reads these configs (see [`makeRouter`](#makeroutercontext-callback-children)).
 
   The callback must return the `app` that it received, or nothing. A route registered on another `OpenAPIHono`, for example `app.basePath('/x')` or one that the callback creates, does not get its route middlewares. If the callback returns such an app and a declared route has route middlewares that `openapi` did not attach, the router throws a `TypeError`: `hono-typed-router: makeRouter: the GET route at '/api/things' has route middlewares that were not attached, because the callback returned a different app. Return the app that the callback received, or register the routes on it.` For the children of `mountRouter`, the message starts with `hono-typed-router: mountRouter:`. A returned app is accepted when no declared route has route middlewares, or when every one was attached.
 
@@ -411,21 +448,21 @@ Known limitation: optional (`?`) modifiers are not kept through the merge. When 
 ```ts
 type ChildRouter = () => OpenAPIHono<any, any, any>;
 
-type RouterCallback<TPath, TVars, TBase, TResult> = (options: {
-  app: OpenAPIHono<{ Variables: TVars }>;
+type RouterCallback<TPath, TVars, TBindings, TBase, TResult> = (options: {
+  app: OpenAPIHono<RouterEnv<TVars, TBindings>>;
   /** @deprecated Use app. Removed in 2.0. */
-  router: OpenAPIHono<{ Variables: TVars }>;
+  router: OpenAPIHono<RouterEnv<TVars, TBindings>>;
   defineRoute: MakeRouteFn<TPath, TBase>;
   /** @deprecated Use defineRoute. Removed in 2.0. */
   route: MakeRouteFn<TPath, TBase>;
 }) => TResult;
 
 // Without children: the callback can return anything, or nothing.
-function makeRouter<TPath, TVars, TCallbackResult>(
-  context: RouteContext<TPath, TVars>,
-  callback: RouterCallback<TPath, TVars, TBase, TCallbackResult | void> &
+function makeRouter<TPath, TVars, TCallbackResult, TBindings = {}>(
+  context: RouteContext<TPath, TVars, TBindings>,
+  callback: RouterCallback<TPath, TVars, TBindings, TBase, TCallbackResult | void> &
     CheckCallbackResult<TCallbackResult>,
-): () => FactoryReturn<TCallbackResult, OpenAPIHono<{ Variables: TVars }>>;
+): () => FactoryReturn<TCallbackResult, OpenAPIHono<RouterEnv<TVars, TBindings>>>;
 
 // With children: the callback returns the app or nothing.
 function makeRouter<
@@ -433,12 +470,13 @@ function makeRouter<
   TVars,
   TCallbackResult extends OpenAPIHono<any, any, any> | void,
   const TChildren extends readonly ChildRouter[],
+  TBindings = {},
 >(
-  context: RouteContext<TPath, TVars>,
-  callback: RouterCallback<TPath, TVars, TBase, TCallbackResult>,
+  context: RouteContext<TPath, TVars, TBindings>,
+  callback: RouterCallback<TPath, TVars, TBindings, TBase, TCallbackResult>,
   children: (TChildren & CheckChildren<TChildren>) | undefined,
 ): () => WithChildSchemas<
-  FactoryReturn<TCallbackResult, OpenAPIHono<{ Variables: TVars }>>,
+  FactoryReturn<TCallbackResult, OpenAPIHono<RouterEnv<TVars, TBindings>>>,
   ChildSchema<TChildren[number]>
 >;
 ```
@@ -494,10 +532,10 @@ The app's type includes the routes of the children, so `hc` and `testClient` see
 If two routes declare the same method and full path, the client type for that path becomes `never`. It can also be a false merge of the two bodies. The router intersects the schemas, as Hono's `route()` does. For this reason, the router throws a `TypeError` when it runs:
 
 ```text
-hono-typed-router: makeRouter: two children declare GET '/api/things/:id'. The client type of that path becomes never. Declare each method and path once.
+hono-typed-router: makeRouter: two children declare GET '/api/things/:id'. The client type of that path can become never. Declare each method and path once.
 ```
 
-Other forms of the message are `the callback and a child both declare GET '/api/things/:id'` and `the callback declares GET '/api' twice`. Another form is `two children declare GET '/a/:id' and GET '/a/:x'`. It names two paths that differ only in the names of their params. Hono gives every request to the first route, so such paths are duplicates. A param regex (`:id{[0-9]+}`) and the optional marker `?` count, so paths that differ in them are not duplicates. `/things` and `/things/` are different routes, so they are not duplicates. The check reads the routes that `defineRoute` declares and `app.openapi` registers. A route made with `createRoute` on a router maker without options is not checked.
+Other forms of the message are `the callback and a child both declare GET '/api/things/:id'` and `the callback declares GET '/api' twice`. Another form is `two children declare GET '/a/:id' and GET '/a/:x'`. It names two paths that differ only in the names of their params. Hono gives every request to the first route, so such paths are duplicates. A param regex (`:id{[0-9]+}`) and the optional marker `?` count, so paths that differ in them are not duplicates. `/things` and `/things/` are different routes, so they are not duplicates. The check reads the routes that `app.openapi` registers. On a router maker without options, or with options that change no route, these include `createRoute` configs and configs without route middlewares from the `defineRoute` of another router. Two configs with the same method and path in one callback are a duplicate. The same config that the callback registers two times is one route. A route that `app.openapi` does not register is not checked. Examples are a raw `app.get()` route and a route on `app.basePath(...)`.
 
 A root context without routes of its own only mounts its children. These two lines give the same app:
 
@@ -575,10 +613,11 @@ function mountRouter<
   TPath extends string,
   TVars extends object,
   const TChildren extends readonly ChildRouter[],
+  TBindings extends object = {},
 >(
-  context: RouteContext<TPath, TVars>,
+  context: RouteContext<TPath, TVars, TBindings>,
   children: TChildren & CheckChildren<TChildren>,
-): WithChildSchemas<OpenAPIHono<{ Variables: TVars }>, ChildSchema<TChildren[number]>>;
+): WithChildSchemas<OpenAPIHono<RouterEnv<TVars, TBindings>>, ChildSchema<TChildren[number]>>;
 ```
 
 Builds a router that declares no routes and only mounts children, and returns the app. Use it for the root app:
@@ -606,24 +645,26 @@ const app = mountRouter(root, [thingsRouter]);
 <!-- doc-check: skip -->
 
 ```ts
-function createScopeMiddleware<TVars extends object = {}>(
-  options: ScopeMiddlewareOptions<TVars>,
+function createScopeMiddleware<TVars extends object = {}, TBindings extends object = {}>(
+  options: ScopeMiddlewareOptions<TVars, TBindings>,
 ): RouteMiddlewareFactory;
-function createScopeMiddleware<TVars extends object>(
-  context: { readonly vars: TVars },
-  options: ScopeMiddlewareOptions<TVars>,
+function createScopeMiddleware<TVars extends object, TBindings extends object = {}>(
+  context: { readonly vars: TVars; readonly bindings?: TBindings },
+  options: ScopeMiddlewareOptions<TVars, TBindings>,
 ): RouteMiddlewareFactory;
 
-interface ScopeMiddlewareOptions<TVars extends object = {}> {
-  resolve: (c: Context<{ Variables: TVars }>) => readonly string[] | Promise<readonly string[]>;
+interface ScopeMiddlewareOptions<TVars extends object = {}, TBindings extends object = {}> {
+  resolve: (
+    c: Context<RouterEnv<TVars, TBindings>>,
+  ) => readonly string[] | Promise<readonly string[]>;
   onForbidden?: (
     missingScopes: string[],
-    c: Context<{ Variables: TVars }>,
+    c: Context<RouterEnv<TVars, TBindings>>,
   ) => unknown | Promise<unknown>;
 }
 ```
 
-`TVars` types `c.var` in `resolve` and `onForbidden`. Give it as a type argument, `createScopeMiddleware<SessionVars>({ resolve: (c) => c.var.session.scopes })`. Or pass a context, `createScopeMiddleware(apiContext, { resolve })`. Only the type of the context is used. Without either, `c.var` has no vars, so `c.var.session` is a compile error. The router does not check the vars against the contexts of the routes. Give the vars that the context middlewares set before the route middleware runs.
+`TVars` types `c.var` in `resolve` and `onForbidden`, and `TBindings` types `c.env`. The context form takes both from the context. Give it as a type argument, `createScopeMiddleware<SessionVars>({ resolve: (c) => c.var.session.scopes })`. Or pass a context, `createScopeMiddleware(apiContext, { resolve })`. Only the type of the context is used. Without either, `c.var` has no vars, so `c.var.session` is a compile error. The router does not check the vars against the contexts of the routes. Give the vars that the context middlewares set before the route middleware runs.
 
 It returns a route middleware factory, not a middleware. Pass it to `createRouter({ routeMiddleware })`, not to `.middleware()`. It extracts the required scopes from `route.security`, flattens them across schemes, and de-duplicates them. If `resolve(c)` does not cover every required scope, it responds with 403. The body is either the default body (`{ error: 'E_FORBIDDEN', message: 'Missing <scopes> scope(s)' }`) or the value that `onForbidden` returns.
 
@@ -875,7 +916,7 @@ interface ExtendRouteContextResult<K extends RouteContextKind> {
 }
 ```
 
-Returns `defineRootContext` and `defineChildContext` whose contexts carry custom builder methods in addition to `.middleware()`. The deprecated keys `defineRootRoute` and `defineChildRoute` hold the same functions, and version 2.0 removes them. Each method threads the path and the accumulated vars of the route. The library applies the augmentation again through `.middleware()` and through the return values of the methods, so the builders survive chaining.
+Returns `defineRootContext` and `defineChildContext` whose contexts carry custom builder methods in addition to `.middleware()`. The deprecated keys `defineRootRoute` and `defineChildRoute` hold the same functions, and version 2.0 removes them. Each method threads the path and the accumulated vars of the route. The library applies the augmentation again through `.middleware()` and through the return values of the methods, so the builders survive chaining. An extended context has no bindings: `bindings` is `{}`, its `.middleware()` does not add the `Bindings` of a middleware, and its children do not get the bindings of a parent. Use the base `defineRootContext` and `defineChildContext` for an app with bindings.
 
 Describe the extended context as a self-referential interface that extends `RouteContextBase`. An interface is the recursion boundary that TypeScript needs, because a mapped-type alias trips "excessively deep". Pair it with a one-line `RouteContextKind`. Then pass the kind as the type argument and the runtime builders as the argument.
 

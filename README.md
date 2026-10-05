@@ -73,7 +73,7 @@ This library uses seven words. Each word has one meaning.
 - A router is the function that `makeRouter` returns. You can give it to a parent router as a child. You can also call it to get the app.
 - An app is the Hono app (an `OpenAPIHono`) that a router or `mountRouter` returns. The callback of `makeRouter` gets this app as `app`. You serve the app, or you give it to `testClient`.
 
-The [API reference](./docs/api.md) gives the rules of each function: [`defineRootContext`](./docs/api.md#definerootcontextpath-middlewares), [`defineChildContext`](./docs/api.md#definechildcontextparent-path--definechildcontexttypeof-parentpath), [`.middleware()` and `.bind()`](./docs/api.md#routecontexttpath-tvars), [`createRouter`](./docs/api.md#createrouteroptions), [`makeRouter` and `defineRoute`](./docs/api.md#makeroutercontext-callback-children), and [`mountRouter`](./docs/api.md#mountroutercontext-children).
+The [API reference](./docs/api.md) gives the rules of each function: [`defineRootContext`](./docs/api.md#definerootcontextpath-middlewares), [`defineChildContext`](./docs/api.md#definechildcontextparent-path--definechildcontexttypeof-parentpath), [`.middleware()` and `.bind()`](./docs/api.md#routecontexttpath-tvars-tbindings), [`createRouter`](./docs/api.md#createrouteroptions), [`makeRouter` and `defineRoute`](./docs/api.md#makeroutercontext-callback-children), and [`mountRouter`](./docs/api.md#mountroutercontext-children).
 
 ### Why `defineRoute` is inside the callback
 
@@ -193,7 +193,7 @@ await app.request('/api?q=hono');
 
 After the request, `calls` is `['timing', 'noStore', 'setRequestId', 'setLog', 'audit:get', 'countRequest', 'markStart', 'handler']`. If a request has no `q`, the validator returns 400 after the seven middlewares, and the handler does not run.
 
-The usage guide shows [the outer app](./docs/usage.md#composing-with-regular-hono-middleware), [route middleware factories](./docs/usage.md#middleware-for-every-route-with-route-middleware-factories), and [the `middleware` key of a route](./docs/usage.md#middleware-for-a-single-route). The API reference gives the type rules of [the root array](./docs/api.md#definerootcontextpath-middlewares), of [`.middleware()`](./docs/api.md#routecontexttpath-tvars), and of [`routeDefaults.middleware`](./docs/api.md#createrouteroptions).
+The usage guide shows [the outer app](./docs/usage.md#composing-with-regular-hono-middleware), [route middleware factories](./docs/usage.md#middleware-for-every-route-with-route-middleware-factories), and [the `middleware` key of a route](./docs/usage.md#middleware-for-a-single-route). The API reference gives the type rules of [the root array](./docs/api.md#definerootcontextpath-middlewares), of [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings), and of [`routeDefaults.middleware`](./docs/api.md#createrouteroptions).
 
 ## Mistakes the compiler does not catch
 
@@ -201,12 +201,12 @@ These mistakes compile, but the app does not do what you expect. Each line links
 
 - With TypeScript 7 and an explicit `lib`, you must also set `"types": ["node"]`. If not, the `Response` type is `any`, and wrong responses compile. See [Install](#install).
 - `createScopeMiddleware` returns a route middleware factory, not a middleware. Give it to `createRouter({ routeMiddleware })`, not to `.middleware()`. See [Scope checks](./docs/usage.md#scope-checks-with-createscopemiddleware).
-- The same reusable middleware applied two times, as in `apiContext.middleware(requireSession)`, adds no vars and runs two times. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars).
+- The same reusable middleware applied two times, as in `apiContext.middleware(requireSession)`, adds no vars and runs two times. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings).
 - A route `middleware` that is a single handler replaces a `routeDefaults.middleware` list. The default middlewares then do not run. See [`routeDefaults`](./docs/api.md#createrouteroptions).
 - A `transformRoute` hook that does not spread `config` removes the keys of the route, also its `middleware`. See [`transformRoute`](./docs/api.md#createrouteroptions).
 - On TypeScript 7, an inline arrow in a root array with typed middlewares gets `c` as `Context<any>`. See [`defineRootContext`](./docs/api.md#definerootcontextpath-middlewares).
 - A sibling router mounted after a bound context, under the same param segment, also runs the loader of `.bind()`. See [`makeRouter`](./docs/api.md#makeroutercontext-callback-children).
-- A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars of the context `any`. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars).
+- A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars of the context `any`. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings).
 - A curried child router mounted under the wrong parent router serves its routes at the wrong URL, without an error. See [`defineChildContext`](./docs/api.md#definechildcontextparent-path--definechildcontexttypeof-parentpath).
 
 The library catches these mistakes: [a `{param}` context path](./docs/api.md#definerootcontextpath-middlewares), [two routes with one method and path](./docs/api.md#makeroutercontext-callback-children), [a param child before a literal sibling](./docs/api.md#makeroutercontext-callback-children), [a callback that returns an untyped app](#quick-start), and [a children array variable](./docs/api.md#makeroutercontext-callback-children).
