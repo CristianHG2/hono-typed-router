@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRoute, z, type OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
+import { inspectRoutes } from 'hono/dev';
 import { defineChildContext, defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
 import { registeredRoutes } from './attach';
@@ -146,6 +147,91 @@ describe('duplicate routes', () => {
 
     expect((await app.request('/api/things')).status).toBe(200);
     expect((await app.request('/api/things/')).status).toBe(200);
+  });
+});
+
+describe("duplicate routes under a child at the segment '/' or ''", () => {
+  const root = defineRootContext('/api', []);
+
+  const parentRoute = (
+    ctx: Parameters<typeof makeRouter>[0],
+    children: Parameters<typeof makeRouter>[2],
+  ) =>
+    makeRouter(
+      ctx,
+      ({ app, defineRoute }) => {
+        app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+          c.json({ ok: true }, 200),
+        );
+      },
+      children,
+    );
+
+  it('serves the routes of a value-form child at the parent path, where the keys say', async () => {
+    const child = defineChildContext(root, '/');
+    const app = makeRouter(root, () => {}, [routes(child, ['get'])])();
+
+    expect(child.path).toBe('/api');
+    expect(inspectRoutes(app).map((r) => `${r.method} ${r.path}`)).toEqual(['GET /api']);
+    expect((await app.request('/api')).status).toBe(200);
+  });
+
+  it('throws when the callback and a value-form child both declare the parent path', () => {
+    const child = defineChildContext(root, '/');
+
+    expect(parentRoute(root, [routes(child, ['get'])])).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api'.",
+    );
+  });
+
+  it('throws when the callback and a curried child both declare the parent path', () => {
+    const child = defineChildContext<typeof root>()('/');
+
+    expect(parentRoute(root, [routes(child, ['get'])])).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api'.",
+    );
+  });
+
+  it("throws for children at '/' and ''", () => {
+    const slash = defineChildContext(root, '/');
+    const empty = defineChildContext(root, '');
+
+    expect(makeRouter(root, () => {}, [routes(slash, ['get']), routes(empty, ['get'])])).toThrow(
+      "hono-typed-router: makeRouter: two children declare GET '/api'.",
+    );
+  });
+
+  it("throws for a grandchild at '/' under a child at '/' and the callback", () => {
+    const child = defineChildContext(root, '/');
+    const grandchild = defineChildContext(child, '/');
+    const nested = makeRouter(child, () => {}, [routes(grandchild, ['get'])]);
+
+    expect(parentRoute(root, [nested])).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api'.",
+    );
+  });
+
+  it("throws for a route '/x' of a child at '/' and a child at '/x'", () => {
+    const slash = defineChildContext(root, '/');
+    const x = defineChildContext(root, '/x');
+
+    expect(makeRouter(root, () => {}, [routes(slash, ['get'], '/x'), routes(x, ['get'])])).toThrow(
+      "hono-typed-router: makeRouter: two children declare GET '/api/x'.",
+    );
+  });
+
+  it("keeps the trailing slash of a root '/api/' for a child at '/'", async () => {
+    const slashRoot = defineRootContext('/api/', []);
+    const child = defineChildContext(slashRoot, '/');
+
+    expect(child.path).toBe('/api/');
+    expect(parentRoute(slashRoot, [routes(child, ['get'])])).toThrow(
+      "hono-typed-router: makeRouter: the callback and a child both declare GET '/api/'.",
+    );
+
+    const app = makeRouter(slashRoot, () => {}, [routes(child, ['get'])])();
+
+    expect((await app.request('/api/')).status).toBe(200);
   });
 });
 

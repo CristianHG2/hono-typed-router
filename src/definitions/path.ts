@@ -6,7 +6,9 @@
  * A parent path that ends in `/` (the root `'/'`) drops that slash when the segment starts
  * with one, so `'/'` + `'/things'` is `'/things'`, not `'//things'`. A segment without a
  * leading `/` under a parent that does not end in one gets one inserted, so `'/api'` +
- * `'things'` is `'/api/things'`. Mirrors `joinChildPath`.
+ * `'things'` is `'/api/things'`. A segment `'/'` or `''` adds nothing, as Hono's `basePath`
+ * and `route('/')` do: `'/api'` + `'/'` is `'/api'`, and `'/api/'` + `'/'` is `'/api/'`. Under
+ * a root `''`, the segment `'/'` gives `'/'`. Mirrors `joinChildPath`.
  *
  * @internal Exported for declaration emit; not part of the public API.
  */
@@ -19,9 +21,13 @@ export type ChildPath<
     : `${TParentPath}${TPath}`
   : string extends TPath
     ? `${TParentPath}${TPath}`
-    : TPath extends `/${string}` | ''
-      ? `${TParentPath}${TPath}`
-      : `${TParentPath}/${TPath}`;
+    : TPath extends '/' | ''
+      ? TParentPath extends ''
+        ? TPath
+        : TParentPath
+      : TPath extends `/${string}`
+        ? `${TParentPath}${TPath}`
+        : `${TParentPath}/${TPath}`;
 
 // A segment that starts with `{`: the OpenAPI `{param}` syntax, up to its `}` or the next `/`.
 const OPENAPI_PARAM = /^\{([^/}]*)\}?/;

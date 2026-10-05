@@ -625,6 +625,26 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(testClient(withOwn()).api.things[':id'].$get).toBeFunction();
 }
 
+// A child at the segment `'/'` serves at the parent path: the schema key and the client
+// use `'/api'`, not `'/api/'`.
+{
+  const root = defineRootContext('/api', []);
+  const makeRouter = createRouter();
+
+  const child = makeRouter(defineChildContext(root, '/'), ({ app, defineRoute }) =>
+    app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+      c.json({ ok: true }, 200),
+    ),
+  );
+
+  const app = makeRouter(root, () => {}, [child]);
+
+  type SchemaKeys<T> = T extends () => OpenAPIHono<any, infer S, any> ? keyof S : never;
+
+  expectTypeOf<SchemaKeys<typeof app>>().toEqualTypeOf<'/api'>();
+  expectTypeOf(testClient(app()).api.$get).toBeFunction();
+}
+
 // The children signature gives the same types as before for every form of `children`.
 {
   const root = defineRootContext('/api', []);

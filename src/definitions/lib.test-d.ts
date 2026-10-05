@@ -4,6 +4,7 @@ import { createMiddleware } from 'hono/factory';
 import type { ParamKeys } from 'hono/types';
 import { createRouter } from '../router';
 import { defineChildContext, defineChildRoute, defineRootContext, defineRootRoute } from './lib';
+import type { ChildPath } from './path';
 import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './types';
 
 // Root context preserves the literal path type
@@ -198,6 +199,22 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   ).toEqualTypeOf<'/api/x/y'>();
   expectTypeOf(defineChildContext(defineRootContext('', []), 'x').path).toEqualTypeOf<'/x'>();
   expectTypeOf(defineChildContext(api, '').path).toEqualTypeOf<'/api'>();
+}
+
+// A segment `'/'` or `''` adds nothing to the parent path, as Hono's `basePath` and
+// `route('/')` do. A trailing slash of the parent stays.
+{
+  expectTypeOf<ChildPath<'/api', '/'>>().toEqualTypeOf<'/api'>();
+  expectTypeOf<ChildPath<'/api', ''>>().toEqualTypeOf<'/api'>();
+  expectTypeOf<ChildPath<'/', '/'>>().toEqualTypeOf<'/'>();
+  expectTypeOf<ChildPath<'', '/'>>().toEqualTypeOf<'/'>();
+  expectTypeOf<ChildPath<'/api/', '/'>>().toEqualTypeOf<'/api/'>();
+  expectTypeOf<ChildPath<'/api/', ''>>().toEqualTypeOf<'/api/'>();
+
+  const api = defineRootContext('/api', []);
+  expectTypeOf(defineChildContext(api, '/').path).toEqualTypeOf<'/api'>();
+  expectTypeOf(defineChildContext<typeof api>()('/').path).toEqualTypeOf<'/api'>();
+  expectTypeOf(defineChildContext(defineChildContext(api, '/'), '/').path).toEqualTypeOf<'/api'>();
 }
 
 // Value form nested inline as an argument of another generic call infers the full path,

@@ -180,8 +180,9 @@ describe('createRouter', () => {
     build(defineChildContext(root, '/things'));
     build(defineChildContext<typeof root>()('/things'));
     build(defineRootContext('', []));
+    build(defineChildContext(root, '/'));
 
-    expect(seen).toEqual(['get / /api/things', 'get / /things', 'get / /']);
+    expect(seen).toEqual(['get / /api/things', 'get / /things', 'get / /', 'get / /api']);
   });
 
   it('passes the full mounted path as meta.path for curried children and grandchildren', async () => {
@@ -349,6 +350,20 @@ describe('createRouter', () => {
       .map((r) => r.path);
 
     expect(paths).toEqual(['/api/x']);
+
+    // A curried child at '/' adds nothing to the mount path, so meta.path is the parent path.
+    seen.length = 0;
+
+    const slashRouter = makeRouter(defineChildContext<typeof root>()('/'), ({ app, defineRoute }) =>
+      app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
+        c.json({ ok: true }, 200),
+      ),
+    );
+
+    const slashApp = makeRouter(root, () => {}, [slashRouter])();
+
+    expect((await slashApp.request('/api')).status).toBe(200);
+    expect(seen).toEqual(['/api']);
   });
 
   it('runs context middlewares, then routeMiddleware in order, then validators, then the handler', async () => {

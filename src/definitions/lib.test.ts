@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extendRouteContext } from './extend';
 import type { RouteContextBase, RouteContextKind } from './extend';
-import { defineChildContext, defineRootContext } from './lib';
+import { defineChildContext, defineRootContext, joinChildPath } from './lib';
 
 interface PlainContext<TPath extends string, TVars extends object> extends RouteContextBase<
   PlainContextKind,
@@ -83,6 +83,32 @@ describe('context path syntax', () => {
     expect(child.segment).toBe('/things/:id{[0-9]+}');
     expect(curried.path).toBe('/things/:id');
     expect(extended.defineRootContext('/x/:id').path).toBe('/x/:id');
+  });
+});
+
+describe('joinChildPath', () => {
+  it("adds nothing for a segment '/' or '', as Hono's basePath and route('/') do", () => {
+    expect(joinChildPath('/api', '/')).toBe('/api');
+    expect(joinChildPath('/api', '')).toBe('/api');
+    expect(joinChildPath('/', '/')).toBe('/');
+    expect(joinChildPath('', '/')).toBe('/');
+    expect(joinChildPath('/api/', '/')).toBe('/api/');
+    expect(joinChildPath('/api/', '')).toBe('/api/');
+  });
+
+  it('joins other segments with one slash and keeps a trailing slash of the segment', () => {
+    expect(joinChildPath('/api', '/things')).toBe('/api/things');
+    expect(joinChildPath('/api', '/things/')).toBe('/api/things/');
+    expect(joinChildPath('/api', 'things')).toBe('/api/things');
+    expect(joinChildPath('/', '/things')).toBe('/things');
+    expect(joinChildPath('/api/', '/x')).toBe('/api/x');
+  });
+
+  it("gives the parent path as the runtime path of a value-form child at '/'", () => {
+    const root = defineRootContext('/api');
+
+    expect(defineChildContext(root, '/').path).toBe('/api');
+    expect(defineChildContext(defineChildContext(root, '/'), '/').path).toBe('/api');
   });
 });
 

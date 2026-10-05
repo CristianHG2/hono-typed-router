@@ -134,11 +134,12 @@ export interface RouteMeta {
    * `transformRoute` runs and is not changed by it. A router mounted as a child (in
    * `makeRouter(context, callback, children)`) gets its parent's full path joined with its
    * own segment, so a mounted router always gets the full path, for value-form and curried
-   * `defineChildContext` contexts alike. A thunk called directly uses its context's runtime
-   * `path`: the full path for a root, and for a value-form child only when every ancestor
-   * is a root or a value-form child. A value-form child with a curried ancestor gets a
-   * partial path from that ancestor's segment; a curried child gets only its segment. A
-   * root defined as `''` gives `'/'`.
+   * `defineChildContext` contexts alike. A child segment `'/'` or `''` adds nothing, so a
+   * route `'/'` of a child at `'/'` under `/api` gets `/api`, the path that Hono serves.
+   * A thunk called directly uses its context's runtime `path`: the full path for a root,
+   * and for a value-form child only when every ancestor is a root or a value-form child.
+   * A value-form child with a curried ancestor gets a partial path from that ancestor's
+   * segment; a curried child gets only its segment. A root defined as `''` gives `'/'`.
    */
   readonly path: string;
 }

@@ -96,10 +96,15 @@ export const defineRootRoute = defineRootContext;
 
 /**
  * Runtime twin of `ChildPath`: joins with exactly one `/`. A parent `'/'` (or trailing `/`)
- * does not double the slash, and a segment without a leading `/` gets one. Internal; also
- * used by `makeRouter` to compute a mounted child's full path for `meta.path`.
+ * does not double the slash, and a segment without a leading `/` gets one. A segment `'/'`
+ * or `''` adds nothing to the parent path, as Hono's `basePath` and `route('/')` do, so
+ * `'/api'` + `'/'` is `'/api'`. Under a root `''`, the segment `'/'` gives `'/'`. Internal;
+ * also used by `makeRouter` to compute a mounted child's full path for `meta.path` and for
+ * the duplicate check.
  */
 export const joinChildPath = (parentPath: string, path: string): string => {
+  if (path === '/' || path === '') return parentPath === '' ? path : parentPath;
+
   if (parentPath.endsWith('/')) {
     return path.startsWith('/') ? `${parentPath.slice(0, -1)}${path}` : `${parentPath}${path}`;
   }
