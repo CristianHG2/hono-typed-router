@@ -6,7 +6,13 @@ import {
 } from './lib';
 import type { ChildPath } from './path';
 import type { CheckRootArray, FoldVars } from './root-array';
-import type { CheckMiddlewareFits, HandlerSets } from './env';
+import type { ContextBindings, HandlerSets } from './env';
+import type {
+  BindingsSlot,
+  CheckExtendedMiddlewareFits,
+  CheckNoBindings,
+  CheckNoRootBindings,
+} from './extend-bindings';
 import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './types';
 
 /**
@@ -69,7 +75,7 @@ export interface RouteContextBase<
     ): ReaugmentContext<K, TPath, TVars & TNewVars>;
     /** A reusable typed middleware; see the second signature of `MiddlewareFactory`. */
     <THandler extends MiddlewareHandler<any, any, any>, _NoExplicitTypeArgs>(
-      handler: THandler & CheckMiddlewareFits<THandler, TVars>,
+      handler: THandler & CheckExtendedMiddlewareFits<THandler, TVars>,
     ): ReaugmentContext<K, TPath, TVars & HandlerSets<THandler>>;
   };
   /** See `RouteContext.bind`. The returned context keeps the builders of `K`. */
@@ -151,17 +157,26 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
       _TVars extends object = FoldVars<TMws>,
     >(
       path: TPath,
-      middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
+      middlewares?: readonly [...TMws] & CheckRootArray<TMws> & CheckNoRootBindings<TMws>,
     ): ReaugmentContext<K, TPath, _TVars>;
   };
   defineChildContext: {
     /** Value form; see the base `defineChildContext`. */
-    <TPath extends string, TParentPath extends string, TParentVars extends object>(
-      parent: { path: TParentPath; vars: TParentVars },
+    <
+      TPath extends string,
+      TParentPath extends string,
+      TParentVars extends object,
+      TParentBindings extends BindingsSlot<TParentBindings> = {},
+    >(
+      parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
       path: TPath,
     ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
     /** Curried form (type-only parent); see the base `defineChildContext`. */
-    <TParentContext extends ParentContext>(): DeferredChildContextFn<
+    <
+      TParentContext extends { path: string; vars: object } & CheckNoBindings<
+        ContextBindings<TParentContext>
+      >,
+    >(): DeferredChildContextFn<
       TParentContext,
       <TPath extends string>(
         path: TPath,
@@ -183,6 +198,9 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
  * accumulated vars, and the augmentation is re-applied automatically through
  * `.middleware()` and through the builders' own return values — so the methods are
  * never lost mid-chain.
+ *
+ * An extended context does not carry Cloudflare `Bindings`. A parent with bindings, and a
+ * middleware that declares `Bindings`, are compile errors.
  *
  * Describe the extended context as a self-referential interface extending
  * {@link RouteContextBase}, pair it with a {@link RouteContextKind}, then pass the

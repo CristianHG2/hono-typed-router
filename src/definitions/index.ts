@@ -20,3 +20,12 @@ export type {
   ExtensionBuilders,
   ExtendRouteContextResult,
 } from './extend';
+
+export type {
+  BindingsSlot,
+  CheckExtendedMiddlewareFits,
+  CheckNoBindings,
+  CheckNoRootBindings,
+  NoBindingsMessage,
+  NoMiddlewareBindingsMessage,
+} from './extend-bindings';

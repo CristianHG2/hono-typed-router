@@ -121,6 +121,14 @@ This is the first stable release of `hono-typed-router`. It changes some names a
   - The check unwraps one level of `Promise`. It does not check a nested `Promise` or a custom thenable.
   - A loader whose return type is a type parameter compiles, so a generic wrapper over `.bind()` compiles. The check does not run through the wrapper: a call of the wrapper with a loader that returns only `null` also compiles.
 
+- The contexts of `extendRouteContext` do not carry Cloudflare `Bindings`. Before, they dropped the bindings with no error. Now the calls that lose bindings are compile errors:
+
+  - A child of a parent with bindings, in the value form or in the curried form of the extended `defineChildContext`, is an error: `Extended contexts do not carry Bindings: use defineChildContext from hono-typed-router for a child of a context with bindings`.
+  - A middleware that declares `Bindings`, in the `.middleware()` of an extended context or in the array of the extended `defineRootContext`, is an error: `Extended contexts do not carry Bindings: use the contexts of hono-typed-router for a middleware with Bindings`.
+  - A parent whose bindings have only optional keys, or are `Record<string, unknown>`, compiles. The child does not get these bindings.
+  - A generic helper over a parent with a bindings type parameter compiles. The check does not run through the helper: a call of the helper with a parent that has bindings also compiles.
+  - `BindingsSlot`, `CheckNoBindings`, `CheckExtendedMiddlewareFits`, `CheckNoRootBindings`, `NoBindingsMessage` and `NoMiddlewareBindingsMessage` are exported for declaration emit.
+
 ### Patch Changes
 
 - When an error arm handler throws an `Error` that has no `cause`, `handleErrors` (and `handle`) now set the original error as its `cause`. Error logs then show both errors. A frozen error, or an error whose `cause` cannot be set, is rethrown unchanged. A module-level singleton error keeps the `cause` of its first throw.

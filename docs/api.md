@@ -47,7 +47,7 @@ TypeScript tries signature 1 first. Signature 1 accepts a call with explicit typ
 
 One, two, or three explicit type arguments always select signature 1. The third and fourth type parameters of signature 2 have no default. Thus, four explicit type arguments select signature 2, for example `defineRootContext<'/api', [typeof a, typeof b], unknown, unknown>('/api', [a, b])`. This call compiles, but it has no use.
 
-The `defineRootContext` of `extendRouteContext` has no bindings slot. One or two explicit type arguments select its signature 1, and three explicit type arguments select its signature 2. Its signature 2 has a fourth type parameter, `_TVars`, which is internal. Four explicit type arguments set the vars to the fourth argument, and nothing checks them. Do not use this form.
+The `defineRootContext` of `extendRouteContext` has no bindings slot. A middleware that declares `Bindings` in its array is a compile error (see [`extendRouteContext`](#extendroutecontextkbuilders)). One or two explicit type arguments select its signature 1, and three explicit type arguments select its signature 2. Its signature 2 has a fourth type parameter, `_TVars`, which is internal. Four explicit type arguments set the vars to the fourth argument, and nothing checks them. Do not use this form.
 
 The bindings are the Cloudflare `Bindings` of the app: the type of `c.env`. Declare them on the root context. There are two ways:
 
@@ -903,19 +903,28 @@ interface ExtendRouteContextResult<K extends RouteContextKind> {
       _TVars extends object = FoldVars<TMws>,
     >(
       path: TPath,
-      middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
+      middlewares?: readonly [...TMws] & CheckRootArray<TMws> & CheckNoRootBindings<TMws>,
     ): ReaugmentContext<K, TPath, _TVars>;
   };
   defineChildContext: {
     // Value form
-    <TPath extends string, TParentPath extends string, TParentVars extends object>(
-      parent: { path: TParentPath; vars: TParentVars },
+    <
+      TPath extends string,
+      TParentPath extends string,
+      TParentVars extends object,
+      TParentBindings extends BindingsSlot<TParentBindings> = {},
+    >(
+      parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
       path: TPath,
-    ): ReaugmentContext<K, `${TParentPath}${TPath}`, TParentVars>;
+    ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
     // Curried form
-    <TParentContext extends { path: string; vars: object }>(): <TPath extends string>(
+    <
+      TParentContext extends { path: string; vars: object } & CheckNoBindings<
+        ContextBindings<TParentContext>
+      >,
+    >(): <TPath extends string>(
       path: TPath,
-    ) => ReaugmentContext<K, `${TParentContext['path']}${TPath}`, TParentContext['vars']>;
+    ) => ReaugmentContext<K, ChildPath<TParentContext['path'], TPath>, TParentContext['vars']>;
   };
   /** @deprecated Use defineRootContext. Removed in 2.0. */
   defineRootRoute: ExtendRouteContextResult<K>['defineRootContext'];
@@ -924,7 +933,14 @@ interface ExtendRouteContextResult<K extends RouteContextKind> {
 }
 ```
 
-Returns `defineRootContext` and `defineChildContext` whose contexts carry custom builder methods in addition to `.middleware()`. The deprecated keys `defineRootRoute` and `defineChildRoute` hold the same functions, and version 2.0 removes them. Each method threads the path and the accumulated vars of the route. The library applies the augmentation again through `.middleware()` and through the return values of the methods, so the builders survive chaining. An extended context has no bindings: `bindings` is `{}`, its `.middleware()` does not add the `Bindings` of a middleware, and its children do not get the bindings of a parent. Use the base `defineRootContext` and `defineChildContext` for an app with bindings.
+Returns `defineRootContext` and `defineChildContext` whose contexts carry custom builder methods in addition to `.middleware()`. The deprecated keys `defineRootRoute` and `defineChildRoute` hold the same functions, and version 2.0 removes them. Each method threads the path and the accumulated vars of the route. The library applies the augmentation again through `.middleware()` and through the return values of the methods, so the builders survive chaining. An extended context does not carry Cloudflare `Bindings`: its `bindings` is `{}`. Thus these calls are compile errors:
+
+- A child of a parent with bindings, in the value form or in the curried form of `defineChildContext`. The message is `Extended contexts do not carry Bindings: use defineChildContext from hono-typed-router for a child of a context with bindings`.
+- A middleware that declares `Bindings`, in `.middleware()` or in the array of `defineRootContext`. The message is `Extended contexts do not carry Bindings: use the contexts of hono-typed-router for a middleware with Bindings`.
+
+Use the base `defineRootContext` and `defineChildContext` for an app with bindings.
+
+The check accepts a parent whose bindings have only optional keys, or are `Record<string, unknown>`. The child does not get these bindings. A generic helper over a parent with a bindings type parameter, such as `<B extends object>(parent: RouteContext<'/api', {}, B>) => defineChildContext(parent, '/x')`, compiles. The check does not run through the helper: a call of the helper with a parent that has bindings also compiles, and the child does not get the bindings.
 
 Describe the extended context as a self-referential interface that extends `RouteContextBase`. An interface is the recursion boundary that TypeScript needs, because a mapped-type alias trips "excessively deep". Pair it with a one-line `RouteContextKind`. Then pass the kind as the type argument and the runtime builders as the argument.
 
@@ -954,7 +970,7 @@ interface RouteContextBase<K extends RouteContextKind, TPath extends string, TVa
     ): ReaugmentContext<K, TPath, TVars & TNewVars>;
     // Reusable typed middleware (see `RouteContext.middleware`).
     <THandler extends MiddlewareHandler<any, any, any>, _NoExplicitTypeArgs>(
-      handler: THandler & CheckMiddlewareFits<THandler, TVars>,
+      handler: THandler & CheckExtendedMiddlewareFits<THandler, TVars>,
     ): ReaugmentContext<K, TPath, TVars & HandlerSets<THandler>>;
   };
   // See `RouteContext.bind`. The returned context keeps the builders of `K`.
