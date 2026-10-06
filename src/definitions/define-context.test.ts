@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extendRouteContext } from './extend';
 import type { RouteContextBase, RouteContextKind } from './extend';
-import { defineChildContext, defineRootContext, joinChildPath } from './lib';
+import { defineChildContext, defineRootContext, joinChildPath } from './define-context';
 
 interface PlainContext<TPath extends string, TVars extends object> extends RouteContextBase<
   PlainContextKind,

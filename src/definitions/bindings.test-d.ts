@@ -2,7 +2,7 @@ import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { createScopeMiddleware } from '../scopes';
-import { defineChildContext, defineRootContext } from './lib';
+import { defineChildContext, defineRootContext } from './define-context';
 import type { CheckRootArray } from './root-array';
 import type { ContextEnv, READS, RouteContext, SETS } from './types';
 

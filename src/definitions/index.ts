@@ -1,4 +1,9 @@
-export { defineRootContext, defineChildContext, defineRootRoute, defineChildRoute } from './lib';
+export {
+  defineRootContext,
+  defineChildContext,
+  defineRootRoute,
+  defineChildRoute,
+} from './define-context';
 
 export type {
   RouteContext,

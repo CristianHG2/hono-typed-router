@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'hono';
 import { on, onError, rethrow } from '../errors';
-import { handle, handler } from './lib';
+import { handle, handler } from './handle';
 
 type FakeContext = Context & {
   req: { valid: ReturnType<typeof vi.fn> };

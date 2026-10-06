@@ -10,7 +10,7 @@ import {
   makeHonoJsonRequest,
   makeHonoNoContentResponse,
   makeHonoResponse,
-} from './factories';
+} from './schema-helpers';
 import { createRouter } from './router';
 
 const Body = z.object({ name: z.string() });
@@ -48,7 +48,7 @@ describe('jsonRequest', () => {
   });
 });
 
-describe('response and body factories', () => {
+describe('response and body helpers', () => {
   it('builds a JSON response and body with the same shape', () => {
     const expected = { description: 'OK', content: { 'application/json': { schema: Body } } };
 

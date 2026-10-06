@@ -1,6 +1,6 @@
 import type { Input } from 'hono';
 import type { InputToDataByTarget, ValidationTargets } from 'hono/types';
-import type { AnyArm, ArmsResponse } from '../errors/lib';
+import type { AnyArm, ArmsResponse } from '../errors/error-arms';
 
 export type { AnyArm, ArmsResponse };
 

@@ -3,9 +3,9 @@ import { z } from 'zod';
 import type { Context, Input } from 'hono';
 import { createRouter } from '../router';
 import { defineRootContext } from '../definitions';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import { handleErrors, on, onError, rethrow } from '../errors';
-import { handle, handler } from './lib';
+import { handle, handler } from './handle';
 import type { ValidatedProxy } from './types';
 
 const ok = jsonResponse(z.object({ ok: z.boolean() }), 'OK');

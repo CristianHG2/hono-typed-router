@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
 import type { RouteContext } from '../definitions';
-import { getRouteIdentity, joinChildPath } from '../definitions/lib';
+import { getRouteIdentity, joinChildPath } from '../definitions/define-context';
 import type {
   BaseRouteConfig,
   ChildRouter,

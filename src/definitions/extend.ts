@@ -3,7 +3,7 @@ import type { BindKey, BindLoader, BindParam, CheckBindLoader } from './bind';
 import {
   defineChildContext as defineChildContextBase,
   defineRootContext as defineRootContextBase,
-} from './lib';
+} from './define-context';
 import type { ChildPath } from './path';
 import type { CheckRootArray, FoldVars } from './root-array';
 import type { ContextBindings, HandlerSets } from './env';

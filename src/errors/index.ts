@@ -6,6 +6,6 @@ export {
   rethrow,
   genericErrorHandler,
   handleErrors,
-} from './lib';
+} from './error-arms';
 
-export type { Rethrow, ErrorArm, ErrorCtor, ErrorTag, MatchHandlers } from './lib';
+export type { Rethrow, ErrorArm, ErrorCtor, ErrorTag, MatchHandlers } from './error-arms';

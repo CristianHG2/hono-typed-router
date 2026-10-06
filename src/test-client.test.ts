@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineChildContext, defineRootContext } from './definitions';
 import { onError } from './errors';
-import { jsonRequest, jsonResponse } from './factories';
+import { jsonRequest, jsonResponse } from './schema-helpers';
 import { handle } from './handler';
 import { createRouter, mountRouter } from './router';
 import { createScopeMiddleware } from './scopes';

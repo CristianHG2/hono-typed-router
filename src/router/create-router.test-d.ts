@@ -4,8 +4,8 @@ import { createMiddleware } from 'hono/factory';
 import { testClient } from 'hono/testing';
 import { z, type ZodUnion } from 'zod';
 import { defineChildContext, defineRootContext } from '../definitions';
-import { jsonRequest, jsonResponse } from '../factories';
-import { createRouter } from './lib';
+import { jsonRequest, jsonResponse } from '../schema-helpers';
+import { createRouter } from './create-router';
 import { mountRouter } from './mount';
 import type { CheckCallbackResult, ChildRouter, RouteMeta, RouteMiddlewareFactory } from './types';
 

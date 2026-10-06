@@ -63,7 +63,7 @@ export default defineConfig({
   overrides: [
     {
       // Runtime boundary: deep-merges untyped route config and probes Zod schemas structurally.
-      files: ['src/router/lib.ts', 'src/router/deep-merge.ts'],
+      files: ['src/router/create-router.ts', 'src/router/deep-merge.ts'],
       rules: {
         'anti-slop/no-runtime-typeof': 'off',
         'anti-slop/no-unknown-parameters': 'off',
@@ -74,7 +74,7 @@ export default defineConfig({
     },
     {
       // Proxy over `c.req.valid`: keys are any `PropertyKey`; `ValidatedProxy` types the values.
-      files: ['src/handler/lib.ts'],
+      files: ['src/handler/handle.ts'],
       rules: {
         'anti-slop/no-runtime-typeof': 'off',
         'anti-slop/no-unknown-returns': 'off',
@@ -104,7 +104,7 @@ export default defineConfig({
     },
     {
       // Error arms are tried in order and the first match wins, so awaits must be sequential.
-      files: ['src/errors/lib.ts'],
+      files: ['src/errors/error-arms.ts'],
       rules: { 'eslint/no-await-in-loop': 'off' },
     },
     {

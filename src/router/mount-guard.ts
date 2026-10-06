@@ -1,5 +1,5 @@
 import type { RouteContext } from '../definitions';
-import { getRouteIdentity } from '../definitions/lib';
+import { getRouteIdentity } from '../definitions/define-context';
 
 /** The public function that a runtime error names after the `hono-typed-router:` prefix. */
 export type RouterCaller = 'makeRouter' | 'mountRouter';

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'hono';
-import { RETHROW, handleErrors, matchErrors, on, onError, rethrow } from './lib';
+import { RETHROW, handleErrors, matchErrors, on, onError, rethrow } from './error-arms';
 
 function makeContext() {
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));

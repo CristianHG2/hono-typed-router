@@ -1,7 +1,7 @@
 import { expectTypeOf } from 'expect-type';
 import type { Context } from 'hono';
 import type { BindLoader } from './bind';
-import { defineChildContext, defineRootContext } from './lib';
+import { defineChildContext, defineRootContext } from './define-context';
 
 type Session = { userId: string };
 

@@ -1,7 +1,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { RouteContext } from '../definitions';
 import type { RouterEnv } from '../definitions/env';
-import { mountingRouter } from './lib';
+import { mountingRouter } from './create-router';
 import type { CheckChildren, ChildRouter, ChildSchema, WithChildSchemas } from './children';
 
 /**

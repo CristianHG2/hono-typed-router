@@ -1,4 +1,4 @@
-export { createRouter } from './lib';
+export { createRouter } from './create-router';
 
 export { mountRouter } from './mount';
 

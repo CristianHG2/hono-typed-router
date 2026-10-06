@@ -1,12 +1,12 @@
 import { expectTypeOf } from 'expect-type';
 import { z } from 'zod';
 import { defineChildContext, defineRootContext } from '../definitions';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import type { CheckChildren } from './children';
-import { createRouter } from './lib';
+import { createRouter } from './create-router';
 import type { CheckPathParams } from './path-params';
 
-// The exact text of the compile-time errors. `lib.test-d.ts` shows each error at a call site.
+// The exact text of the compile-time errors. `create-router.test-d.ts` shows each error at a call site.
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 

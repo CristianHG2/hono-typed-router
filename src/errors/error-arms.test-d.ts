@@ -3,10 +3,10 @@ import { z } from 'zod';
 import type { Context } from 'hono';
 import { createRouter } from '../router';
 import { defineRootContext } from '../definitions';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import { handle } from '../handler';
-import { matchErrors, onError, rethrow } from './lib';
-import type { CheckErrorCtors, ErrorTag } from './lib';
+import { matchErrors, onError, rethrow } from './error-arms';
+import type { CheckErrorCtors, ErrorTag } from './error-arms';
 
 class CartNotFound extends Error {
   readonly _tag = 'CartNotFound' as const;

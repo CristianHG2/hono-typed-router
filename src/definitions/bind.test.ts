@@ -1,12 +1,12 @@
 import { inspectRoutes, showRoutes } from 'hono/dev';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from '@hono/zod-openapi';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import { createRouter, mountRouter } from '../router';
 import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
-import { getRouteIdentity } from './lib';
-import { defineChildContext, defineRootContext } from './lib';
+import { getRouteIdentity } from './define-context';
+import { defineChildContext, defineRootContext } from './define-context';
 import type { RouteContext } from './types';
 
 type Organization = { id: string; name: string };

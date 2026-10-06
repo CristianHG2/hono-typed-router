@@ -2,7 +2,7 @@ import { expectTypeOf } from 'expect-type';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defineRootContext } from './definitions';
-import { jsonResponse } from './factories';
+import { jsonResponse } from './schema-helpers';
 import { createRouter } from './router';
 import { createScopeMiddleware } from './scopes';
 

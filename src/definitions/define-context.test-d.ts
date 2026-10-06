@@ -3,7 +3,12 @@ import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { ParamKeys } from 'hono/types';
 import { createRouter } from '../router';
-import { defineChildContext, defineChildRoute, defineRootContext, defineRootRoute } from './lib';
+import {
+  defineChildContext,
+  defineChildRoute,
+  defineRootContext,
+  defineRootRoute,
+} from './define-context';
 import type { CheckMiddlewareFits } from './env';
 import type { ChildPath } from './path';
 import type { CheckRootArray } from './root-array';

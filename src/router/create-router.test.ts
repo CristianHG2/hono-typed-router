@@ -10,10 +10,10 @@ import {
   extendRouteContext,
 } from '../definitions';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from '../definitions';
-import { getRouteIdentity } from '../definitions/lib';
-import { jsonRequest, jsonResponse } from '../factories';
+import { getRouteIdentity } from '../definitions/define-context';
+import { jsonRequest, jsonResponse } from '../schema-helpers';
 import { createScopeMiddleware } from '../scopes';
-import { createRouter } from './lib';
+import { createRouter } from './create-router';
 import { mountRouter } from './mount';
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');

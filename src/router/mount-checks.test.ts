@@ -3,9 +3,9 @@ import { createRoute, z, type OpenAPIHono, type RouteConfig } from '@hono/zod-op
 import type { MiddlewareHandler } from 'hono';
 import { inspectRoutes } from 'hono/dev';
 import { defineChildContext, defineRootContext } from '../definitions';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import { registeredRoutes } from './attach';
-import { createRouter } from './lib';
+import { createRouter } from './create-router';
 import { mountRouter } from './mount';
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');

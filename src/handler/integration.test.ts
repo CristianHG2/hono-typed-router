@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { Context } from 'hono';
 import { defineRootContext } from '../definitions';
-import { jsonResponse } from '../factories';
+import { jsonResponse } from '../schema-helpers';
 import { createRouter } from '../router';
 import { onError } from '../errors';
-import { handle } from './lib';
+import { handle } from './handle';
 
 const okResponse = jsonResponse(z.object({ id: z.string() }), 'OK');
 

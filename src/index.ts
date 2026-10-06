@@ -1,4 +1,4 @@
-export * from './factories';
+export * from './schema-helpers';
 
 export * from './router';
 

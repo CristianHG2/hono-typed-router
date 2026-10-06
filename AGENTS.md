@@ -2,6 +2,27 @@
 
 `hono-typed-router` is a path-typed router builder for Hono and `@hono/zod-openapi`.
 
+## Layout
+
+- `src/definitions/`: contexts. `define-context.ts` has the context constructors, `bind.ts` has `.bind`, `extend.ts` has `extendRouteContext`, and `types.ts` has `RouteContext`.
+- `src/router/`: the router maker and the router. `create-router.ts` has `createRouter`, `mount.ts` has `mountRouter`, and `mount-checks.ts` has the checks at mount time.
+- `src/errors/`: the error arms and `matchErrors`, in `error-arms.ts`.
+- `src/handler/`: `handle`, in `handle.ts`.
+- `src/schema-helpers.ts`: the JSON schema helpers, for example `jsonResponse`.
+- `src/scopes.ts`: `createScopeMiddleware`. It is the `./scopes` subpath export, not a part of `src/index.ts`.
+- `src/index.ts`: the main export. It re-exports the folders and `schema-helpers.ts`.
+- The import rule: `errors`, `definitions` and `schema-helpers` import no other `src` folder. `router` imports `definitions`. `handler` imports `errors`. `scopes` imports `router` and `definitions`. Nothing imports upward.
+
+| Symbol                  | File in `src/`                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `makeRouter`            | `router/create-router.ts`, the closure in `createRouterImpl`. Type: `MakeRouterFn` in `router/types.ts`. |
+| `defineRoute`           | A function in that closure. Type: `MakeRouteFn` in `router/types.ts`.                                    |
+| `.bind`                 | Signatures: `definitions/types.ts` and `definitions/extend.ts`. Runtime: `definitions/bind.ts`.          |
+| `mountRouter`           | `router/mount.ts`                                                                                        |
+| `createScopeMiddleware` | `scopes.ts`                                                                                              |
+| `handle`                | `handler/handle.ts`                                                                                      |
+| `matchErrors`           | `errors/error-arms.ts`                                                                                   |
+
 ## Before a commit
 
 - Run `pnpm check`. It runs the type check, the type tests, `check:docs`, lint, the format check, the tests, `check:type-budget`, and the build. CI runs `pnpm check`.

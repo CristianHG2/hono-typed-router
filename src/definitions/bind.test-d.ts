@@ -5,7 +5,7 @@ import { createRouter } from '../router';
 import type { BindParam } from './bind';
 import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
-import { defineChildContext, defineRootContext } from './lib';
+import { defineChildContext, defineRootContext } from './define-context';
 import type { RouteContext } from './types';
 
 type Session = { userId: string };

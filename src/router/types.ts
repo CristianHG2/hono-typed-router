@@ -1,12 +1,14 @@
 import type { OpenAPIHono, RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
-import type { ZodType, ZodUnion } from 'zod';
 import type { RouteContext } from '../definitions';
 import type { RouterEnv } from '../definitions/env';
 import type { CheckChildren, ChildRouter, ChildSchema, WithChildSchemas } from './children';
+import type { DeepMerge } from './deep-merge';
 import type { CheckPathParams, WithPathParams } from './path-params';
 
 export type { ChildRouter } from './children';
+
+export type { DeepMerge } from './deep-merge';
 
 /** @internal */
 export type RouteConfigMethod = RouteConfig['method'];
@@ -15,72 +17,6 @@ export type RouteConfigMethod = RouteConfig['method'];
 export type InputRouteConfig = Omit<RouteConfig, 'method' | 'path'>;
 
 export type BaseRouteConfig = Partial<InputRouteConfig>;
-
-type IsPlainObject<T> = T extends
-  | readonly unknown[]
-  | ((...args: any[]) => any)
-  | Date
-  | { _def: unknown }
-  ? false
-  : T extends object
-    ? true
-    : false;
-
-/**
- * @internal
- *
- * The type of the runtime `deepMerge`. The route (`B`) wins, except:
- *
- * - Two zod schemas give `ZodUnion<readonly [A, B]>` (`base.or(route)`).
- * - Two arrays give `(A[number] | B[number])[]`. Two `middleware` tuples give `[...A, ...B]`.
- * - Two plain objects merge key by key. A route key that can be `undefined` gives
- *   `A[K] | DeepMerge<A[K], B[K]> | undefined`, because the runtime copies an explicit `undefined`.
- * - A route `security: []` replaces the base value. Other empty arrays merge.
- *
- * Limit: the merge drops the `?` modifier, so a key from an optional property is required.
- */
-export type DeepMerge<A, B> = A extends ZodType
-  ? B extends ZodType
-    ? ZodUnion<readonly [A, B]>
-    : B
-  : A extends readonly unknown[]
-    ? B extends readonly unknown[]
-      ? (A[number] | B[number])[]
-      : B
-    : [IsPlainObject<A>, IsPlainObject<B>] extends [true, true]
-      ? MergeObjects<A, B>
-      : B;
-
-// TypeScript infers `security: []` as `never[]` or `[]`.
-type MergeObjects<A, B> = {
-  [K in keyof A | keyof B]: K extends keyof B
-    ? K extends keyof A
-      ? K extends 'security'
-        ? B[K] extends readonly never[]
-          ? []
-          : MergeKey<A[K], B[K]>
-        : K extends 'middleware'
-          ? MergeMiddleware<A[K], B[K]>
-          : MergeKey<A[K], B[K]>
-      : B[K]
-    : K extends keyof A
-      ? A[K]
-      : never;
-};
-
-// Two tuples keep their order and length, so `RouteConfigToEnv` of zod-openapi sees each
-// middleware.
-type MergeMiddleware<A, B> = A extends readonly unknown[]
-  ? B extends readonly unknown[]
-    ? number extends A['length'] | B['length']
-      ? MergeKey<A, B>
-      : [...A, ...B]
-    : MergeKey<A, B>
-  : MergeKey<A, B>;
-
-type MergeKey<A, B> = undefined extends B
-  ? A | DeepMerge<A, Exclude<B, undefined>> | Extract<B, undefined>
-  : DeepMerge<A, B>;
 
 /**
  * @internal

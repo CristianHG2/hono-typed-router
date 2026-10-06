@@ -4,7 +4,7 @@ import { createMiddleware } from 'hono/factory';
 import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
 import type { BindingsSlot, CheckExtendedMiddlewareFits } from './extend-bindings';
-import { defineRootContext as baseRoot } from './lib';
+import { defineRootContext as baseRoot } from './define-context';
 import type { ParentContext, RouteContext } from './types';
 
 // Keep each `@ts-expect-error` call on one line: the error column differs between TypeScript
