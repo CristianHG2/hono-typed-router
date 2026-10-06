@@ -5,13 +5,9 @@ export {
   defineChildRoute,
 } from './define-context';
 
-export type {
-  RouteContext,
-  MiddlewareFactory,
-  ChildRouteFn,
-  NoRedeclare,
-  ContextEnv,
-} from './types';
+export type { RouteContext, MiddlewareFactory, ChildRouteFn, NoRedeclare } from './context';
+
+export type { ContextEnv } from './context-env';
 
 export type { BindKey, BindLoader, BindParam, CheckBindLoader } from './bind';
 

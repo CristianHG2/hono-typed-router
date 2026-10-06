@@ -3,7 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import type { ParamKeys } from 'hono/types';
 import { extendRouteContext } from './extend';
-import type { ContextEnv } from './types';
+import type { ContextEnv } from './context-env';
 import type {
   ExtendRouteContextResult,
   ReaugmentContext,

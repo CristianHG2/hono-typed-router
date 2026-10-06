@@ -4,9 +4,9 @@
 
 ## Layout
 
-- `src/definitions/`: contexts. `define-context.ts` has the context constructors, `bind.ts` has `.bind`, `extend.ts` has `extendRouteContext`, and `types.ts` has `RouteContext`.
+- `src/definitions/`: contexts. `define-context.ts` has the context constructors, `bind.ts` has `.bind`, `extend.ts` has `extendRouteContext`, `context.ts` has `RouteContext`, and `context-env.ts` has `ContextEnv`.
 - `src/router/`: the router maker and the router. `create-router.ts` has `createRouter`, `mount.ts` has `mountRouter`, and `mount-checks.ts` has the checks at mount time.
-- `src/errors/`: the error arms and `matchErrors`, in `error-arms.ts`.
+- `src/errors/`: the error arms and `handleErrors` in `error-arms.ts`, and `matchErrors` in `match-errors.ts`.
 - `src/handler/`: `handle`, in `handle.ts`.
 - `src/schema-helpers.ts`: the JSON schema helpers, for example `jsonResponse`.
 - `src/scopes.ts`: `createScopeMiddleware`. It is the `./scopes` subpath export, not a part of `src/index.ts`.
@@ -17,11 +17,11 @@
 | ----------------------- | -------------------------------------------------------------------------------------------------------- |
 | `makeRouter`            | `router/create-router.ts`, the closure in `createRouterImpl`. Type: `MakeRouterFn` in `router/types.ts`. |
 | `defineRoute`           | A function in that closure. Type: `MakeRouteFn` in `router/types.ts`.                                    |
-| `.bind`                 | Signatures: `definitions/types.ts` and `definitions/extend.ts`. Runtime: `definitions/bind.ts`.          |
+| `.bind`                 | Signatures: `definitions/context.ts` and `definitions/extend.ts`. Runtime: `definitions/bind.ts`.        |
 | `mountRouter`           | `router/mount.ts`                                                                                        |
 | `createScopeMiddleware` | `scopes.ts`                                                                                              |
 | `handle`                | `handler/handle.ts`                                                                                      |
-| `matchErrors`           | `errors/error-arms.ts`                                                                                   |
+| `matchErrors`           | `errors/match-errors.ts`                                                                                 |
 
 ## Before a commit
 

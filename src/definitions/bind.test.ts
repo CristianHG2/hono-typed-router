@@ -7,7 +7,7 @@ import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
 import { getRouteIdentity } from './define-context';
 import { defineChildContext, defineRootContext } from './define-context';
-import type { RouteContext } from './types';
+import type { RouteContext } from './context';
 
 type Organization = { id: string; name: string };
 

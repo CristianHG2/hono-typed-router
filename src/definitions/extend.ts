@@ -13,7 +13,7 @@ import type {
   CheckNoBindings,
   CheckNoRootBindings,
 } from './extend-bindings';
-import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './types';
+import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './context';
 
 /**
  * Passes a context interface with two type parameters to {@link extendRouteContext}. Map the

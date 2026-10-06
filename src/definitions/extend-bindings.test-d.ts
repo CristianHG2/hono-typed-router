@@ -5,7 +5,7 @@ import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
 import type { BindingsSlot, CheckExtendedMiddlewareFits } from './extend-bindings';
 import { defineRootContext as baseRoot } from './define-context';
-import type { ParentContext, RouteContext } from './types';
+import type { ParentContext, RouteContext } from './context';
 
 // Keep each `@ts-expect-error` call on one line: the error column differs between TypeScript
 // versions, and the curried form reports a second error on the same line.

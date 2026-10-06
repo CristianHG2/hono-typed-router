@@ -5,7 +5,7 @@ import { assertHonoPath } from './path';
 import type { ChildPath } from './path';
 import type { RouterEnv } from './env';
 import type { CheckRootArray, FoldBindings, FoldVars } from './root-array';
-import type { ChildRouteFn, DeferredChildContextFn, ParentContext, RouteContext } from './types';
+import type { ChildRouteFn, DeferredChildContextFn, ParentContext, RouteContext } from './context';
 
 /**
  * Internal. `makeRouter` uses it to make sure that a value-form child mounts under its parent

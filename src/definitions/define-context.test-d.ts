@@ -9,10 +9,10 @@ import {
   defineRootContext,
   defineRootRoute,
 } from './define-context';
-import type { CheckMiddlewareFits } from './env';
+import type { CheckMiddlewareFits, READS, SETS } from './env';
 import type { ChildPath } from './path';
 import type { CheckRootArray } from './root-array';
-import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './types';
+import type { ChildRouteFn, ContextEnv, RouteContext } from '.';
 
 // A root context keeps the literal path type
 {

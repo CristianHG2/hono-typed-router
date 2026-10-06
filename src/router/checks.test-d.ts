@@ -6,7 +6,7 @@ import type { CheckChildren } from './children';
 import { createRouter } from './create-router';
 import type { CheckPathParams } from './path-params';
 
-// The exact text of the compile-time errors. `create-router.test-d.ts` shows each error at a call site.
+// The exact text of the compile-time errors. `define-route.test-d.ts` and `mount.test-d.ts` show each error at a call site.
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 

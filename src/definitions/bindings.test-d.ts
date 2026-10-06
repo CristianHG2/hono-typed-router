@@ -4,7 +4,8 @@ import { createMiddleware } from 'hono/factory';
 import { createScopeMiddleware } from '../scopes';
 import { defineChildContext, defineRootContext } from './define-context';
 import type { CheckRootArray } from './root-array';
-import type { ContextEnv, READS, RouteContext, SETS } from './types';
+import type { RouteContext } from './context';
+import type { ContextEnv, READS, SETS } from './context-env';
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
 

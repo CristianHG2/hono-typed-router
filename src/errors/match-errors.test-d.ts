@@ -5,8 +5,9 @@ import { createRouter } from '../router';
 import { defineRootContext } from '../definitions';
 import { jsonResponse } from '../schema-helpers';
 import { handle } from '../handler';
-import { matchErrors, onError, rethrow } from './error-arms';
-import type { CheckErrorCtors, ErrorTag } from './error-arms';
+import { onError, rethrow } from './error-arms';
+import { matchErrors } from './match-errors';
+import type { CheckErrorCtors, ErrorTag } from './match-errors';
 
 class CartNotFound extends Error {
   readonly _tag = 'CartNotFound' as const;
