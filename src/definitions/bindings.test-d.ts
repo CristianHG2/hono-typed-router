@@ -55,7 +55,7 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(bare.bindings).toEqualTypeOf<Bindings>();
 
   // With explicit bindings, a middleware typed only with `Variables` does not fit the array.
-  // See `DefineRootContextFn`.
+  // See `defineRootContext`.
   // @ts-expect-error the middleware does not declare the `Bindings`
   defineRootContext<'/api', SessionVars, Bindings>('/api', [authVarsOnly]);
 

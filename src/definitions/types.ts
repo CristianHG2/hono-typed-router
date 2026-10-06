@@ -11,7 +11,6 @@ import type {
   RouterEnv,
   SETS,
 } from './env';
-import type { CheckRootArray, FoldBindings, FoldVars } from './root-array';
 
 export type { HandlerReads, HandlerSets, HandlerVars, READS, SETS } from './env';
 
@@ -105,41 +104,6 @@ export interface RouteContext<
   readonly segment?: string;
 }
 
-export interface DefineRootContextFn {
-  /**
-   * The vars and the bindings come from the type arguments, or from the middlewares when they
-   * all declare the same `Variables` and `Bindings`. This signature must stay first, so that
-   * TypeScript tries it before the fold signature. One to three explicit type arguments
-   * select it. A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars `any`.
-   * With a `TBindings` type argument, each typed middleware must declare these `Bindings` (see
-   * `MiddlewareFactory`). Add a middleware typed only with `Variables` with `.middleware()`.
-   */
-  <TPath extends string, TVars extends object = {}, TBindings extends object = {}>(
-    path: TPath,
-    middlewares?: MiddlewareHandler<RouterEnv<TVars, TBindings>>[],
-  ): RouteContext<TPath, TVars, TBindings>;
-  /**
-   * Fold: the vars are the intersection of the `Variables` of the middlewares, and the
-   * bindings are the intersection of their `Bindings`. Thus typed middlewares with different
-   * vars can share the array. The two `_NoExplicitTypeArgs` parameters have no default, so one
-   * to three explicit type arguments cannot select this signature. `CheckRootArray` rejects
-   * conflicting var types and a non-tuple array of mixed middlewares.
-   *
-   * Limit: in an array of typed middlewares with different vars, an inline arrow gets no
-   * contextual type. TypeScript 7 types `c` as `Context<any>`, and TypeScript 5.9 reports an
-   * error. Write such a handler with `createMiddleware`, or add it with `.middleware()`.
-   */
-  <
-    TPath extends string,
-    TMws extends readonly MiddlewareHandler[],
-    _NoExplicitTypeArgs,
-    _NoExplicitTypeArgs2,
-  >(
-    path: TPath,
-    middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
-  ): RouteContext<TPath, FoldVars<TMws>, FoldBindings<TMws>>;
-}
-
 /**
  * A base or an extended context: a path literal and a vars phantom. A context with a
  * `bindings` phantom gives its bindings to its children.
@@ -211,29 +175,3 @@ export type ChildRouteFn<TParentContext extends ParentContext> = <TPath extends 
 export type DeferredChildContextFn<TParentContext, TFn> = [TParentContext] extends [unknown]
   ? TFn
   : never;
-
-export interface DefineChildContextFn {
-  /**
-   * Value form: infers the path, vars and bindings of the parent from `parent`. The runtime
-   * `path` is `parent.path` joined with `path`. A parent `'/'` adds no slash. The parent value
-   * must exist at module load. If the parent module imports the router of the child (a
-   * circular import), use the curried form.
-   */
-  <
-    TPath extends string,
-    TParentPath extends string,
-    TParentVars extends object,
-    TParentBindings extends object = {},
-  >(
-    parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
-    path: TPath,
-  ): RouteContext<ChildPath<TParentPath, TPath>, TParentVars, TParentBindings>;
-  /**
-   * Curried form: the parent is a type only, so the child module does not import the parent
-   * at runtime. The runtime `path` of the child is its own segment.
-   */
-  <TParentContext extends ParentContext>(): DeferredChildContextFn<
-    TParentContext,
-    ChildRouteFn<TParentContext>
-  >;
-}

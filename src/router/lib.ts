@@ -4,13 +4,14 @@ import type { RouteContext } from '../definitions';
 import { getRouteIdentity, joinChildPath } from '../definitions/lib';
 import type {
   BaseRouteConfig,
+  ChildRouter,
   CreateRouterOptions,
   MakeRouterFn,
   RouteMeta,
   RouteMiddlewareFactory,
 } from './types';
-import type { ChildRouter } from './children';
 import { assertRoutesAttached, attachOnOpenapi, guardOpenapi, recordRoute } from './attach';
+import { deepMerge } from './deep-merge';
 import { checkRouter } from './mount-checks';
 import { assertMountedUnderParent, type RouterCaller, type RouterMount } from './mount-guard';
 import { routeJoin, toHonoPath, withPathParams } from './path-params';
@@ -48,10 +49,10 @@ export function createRouter(
 }
 
 // `caller` is the public function that the runtime errors name.
-const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
+function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
   options: CreateRouterOptions<TBase>,
   caller: RouterCaller,
-): MakeRouterFn<TBase> => {
+): MakeRouterFn<TBase> {
   const factories: RouteMiddlewareFactory[] = options.routeMiddleware
     ? Array.isArray(options.routeMiddleware)
       ? options.routeMiddleware
@@ -73,9 +74,10 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
     factories.length > 0 ? 'routeMiddleware' : undefined,
   ].filter((name) => name !== undefined);
 
-  const mergeDefaults = (config: AnyRouteConfigInput): AnyRouteConfigInput =>
+  function mergeDefaults(config: AnyRouteConfigInput): AnyRouteConfigInput {
     // SAFETY: `deepMerge` returns the route config with the `routeDefaults` keys added.
-    base ? (deepMerge(base, config) as AnyRouteConfigInput) : config;
+    return base ? (deepMerge(base, config) as AnyRouteConfigInput) : config;
+  }
 
   // SAFETY: this is the erased body of `MakeRouterFn`. It returns the callback result or the
   // router, and mounts the children, as the signatures say.
@@ -91,7 +93,9 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
   ) => {
     // A parent passes `mount` when it mounts this thunk. The public type stays `() => ...`.
     return (mount?: RouterMount) => {
-      if (mount) assertMountedUnderParent(context, mount);
+      if (mount) {
+        assertMountedUnderParent(context, mount);
+      }
 
       // The parent adds its own path at mount, so the base path is the relative segment.
       const segment = context.segment ?? context.path;
@@ -107,7 +111,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         router.use(...context.middlewares);
       }
 
-      const defineRoute = (method: RouteConfig['method'], config: Record<string, unknown>) => {
+      function defineRoute(method: RouteConfig['method'], config: Record<string, unknown>) {
         // SAFETY: `MakeRouteFn` types `config` as a route config without `method` and `path`.
         const incoming = { method, path: '/', ...config } as AnyRouteConfigInput;
 
@@ -133,13 +137,15 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
         for (const f of factories) {
           const mw = f(declared, meta);
 
-          if (mw !== undefined) mws.push(mw);
+          if (mw !== undefined) {
+            mws.push(mw);
+          }
         }
 
         recordRoute(declared, router, mws);
 
         return declared;
-      };
+      }
 
       if (effectiveOptions.length > 0) {
         guardOpenapi(router, fullPath, effectiveOptions);
@@ -150,15 +156,18 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
       const result = callback({ app: router, router, defineRoute, route: defineRoute });
 
       // Limit: `instanceof` does not find an app from a second copy of zod-openapi.
-      if (result !== router && result instanceof OpenAPIHono)
+      if (result !== router && result instanceof OpenAPIHono) {
         assertRoutesAttached(router, fullPath, caller);
+      }
 
       // SAFETY: `MakeRouterFn` types the callback to return an `OpenAPIHono` or nothing.
       const app = (result ?? router) as OpenAPIHono;
       const lineage = getRouteIdentity(context)?.lineage;
       const built = (children ?? []).map((child) => child({ caller, basePath: fullPath, lineage }));
 
-      for (const childApp of built) app.route('/', childApp);
+      for (const childApp of built) {
+        app.route('/', childApp);
+      }
 
       checkRouter({
         caller,
@@ -173,7 +182,7 @@ const createRouterImpl = <const TBase extends BaseRouteConfig = {}>(
       return app;
     };
   }) as MakeRouterFn<TBase>;
-};
+}
 
 /**
  * The `makeRouter` of `mountRouter`. The plain function type keeps the `MakeRouterFn`
@@ -185,94 +194,3 @@ export const mountingRouter: (
   callback: (options: { app: unknown }) => unknown,
   children: readonly ChildRouter[],
 ) => () => unknown = createRouterImpl({}, 'mountRouter');
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> => {
-  if (value === null || typeof value !== 'object') return false;
-  const proto = Object.getPrototypeOf(value);
-
-  return proto === Object.prototype || proto === null;
-};
-
-type ZodSchemaLike = { _def: unknown; or: (other: unknown) => unknown };
-
-const isZodSchema = (value: unknown): value is ZodSchemaLike => {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    '_def' in value &&
-    // SAFETY: `value` is a non-null object, so a read of `or` cannot throw.
-    typeof (value as { or?: unknown }).or === 'function'
-  );
-};
-
-const deepEqual = (a: unknown, b: unknown): boolean => {
-  if (a === b) return true;
-
-  if (typeof a !== typeof b) return false;
-
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-
-    for (let i = 0; i < a.length; i++) {
-      if (!deepEqual(a[i], b[i])) return false;
-    }
-
-    return true;
-  }
-
-  if (isPlainObject(a) && isPlainObject(b)) {
-    const ak = Object.keys(a);
-    const bk = Object.keys(b);
-
-    if (ak.length !== bk.length) return false;
-
-    for (const k of ak) {
-      if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-
-      if (!deepEqual(a[k], b[k])) return false;
-    }
-
-    return true;
-  }
-
-  return false;
-};
-
-const mergeArrays = (base: readonly unknown[], route: readonly unknown[]): unknown[] => {
-  const out: unknown[] = [...base];
-
-  for (const item of route) {
-    if (!out.some((existing) => deepEqual(existing, item))) {
-      out.push(item);
-    }
-  }
-
-  return out;
-};
-
-const deepMerge = (
-  base: Record<string, unknown>,
-  route: Record<string, unknown>,
-): Record<string, unknown> => {
-  const out: Record<string, unknown> = { ...base };
-
-  for (const key of Object.keys(route)) {
-    const routeVal = route[key];
-    const baseVal = out[key];
-
-    if (key === 'security' && Array.isArray(routeVal) && routeVal.length === 0) {
-      // OpenAPI: an operation-level `security: []` removes the inherited requirement.
-      out[key] = routeVal;
-    } else if (Array.isArray(baseVal) && Array.isArray(routeVal)) {
-      out[key] = mergeArrays(baseVal, routeVal);
-    } else if (isPlainObject(baseVal) && isPlainObject(routeVal)) {
-      out[key] = deepMerge(baseVal, routeVal);
-    } else if (isZodSchema(baseVal) && isZodSchema(routeVal)) {
-      out[key] = baseVal.or(routeVal);
-    } else {
-      out[key] = routeVal;
-    }
-  }
-
-  return out;
-};

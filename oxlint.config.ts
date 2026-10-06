@@ -27,6 +27,9 @@ export default defineConfig({
   // `effect/index.ts` (5 Effect rules) is not registered: no Effect dependency in this repo.
   jsPlugins: [{ name: 'anti-slop', specifier: './tools/oxlint/anti-slop/index.ts' }],
   rules: {
+    'eslint/curly': ['error', 'all'],
+    'eslint/no-else-return': ['error', { allowElseIf: false }],
+    'eslint/func-style': ['error', 'declaration', { allowTypeAnnotation: true }],
     // `{}` is the deliberate identity for accumulated vars / base config generics.
     'typescript/ban-types': 'off',
     // Router/handler builders are single closures by design; size is a review concern.
@@ -53,13 +56,14 @@ export default defineConfig({
     'anti-slop/no-unknown-type-aliases': 'error',
     'anti-slop/no-unsafe-dictionary-type': 'error',
     'anti-slop/no-widen-then-assert': 'error',
+    'anti-slop/prefer-early-return': 'error',
     'anti-slop/require-readable-spacing': 'error',
     'anti-slop/require-safety-comment-for-type-assertion': 'error',
   },
   overrides: [
     {
       // Runtime boundary: deep-merges untyped route config and probes Zod schemas structurally.
-      files: ['src/router/lib.ts'],
+      files: ['src/router/lib.ts', 'src/router/deep-merge.ts'],
       rules: {
         'anti-slop/no-runtime-typeof': 'off',
         'anti-slop/no-unknown-parameters': 'off',
@@ -129,6 +133,11 @@ export default defineConfig({
         'unicorn/no-useless-undefined': 'off',
         // `(id) => Number(id)` pins the callback parameter type under test.
         'unicorn/prefer-native-coercion-functions': 'off',
+        // `if (res.status === 200) { ... }` narrows the response type for the assertions inside.
+        'anti-slop/prefer-early-return': 'off',
+        // Bare `{ }` blocks scope each case. ES modules are strict, so a function declared in a
+        // block is scoped to that block.
+        'eslint/no-inner-declarations': ['error', 'functions', { blockScopedFunctions: 'allow' }],
       },
     },
     {
@@ -145,6 +154,10 @@ export default defineConfig({
         'unicorn/consistent-function-scoping': 'off',
         'unicorn/no-array-callback-reference': 'off',
         'unicorn/no-immediate-mutation': 'off',
+        // Upstream code style is kept as-is.
+        'eslint/curly': 'off',
+        'eslint/no-else-return': 'off',
+        'eslint/func-style': 'off',
         // The plugin's own source is not held to its rules (upstream does not self-apply them).
         'anti-slop/no-array-filter-map': 'off',
         'anti-slop/no-reduce-accumulator-copy': 'off',
@@ -162,6 +175,7 @@ export default defineConfig({
         'anti-slop/no-unknown-type-aliases': 'off',
         'anti-slop/no-unsafe-dictionary-type': 'off',
         'anti-slop/no-widen-then-assert': 'off',
+        'anti-slop/prefer-early-return': 'off',
         'anti-slop/require-readable-spacing': 'off',
         'anti-slop/require-safety-comment-for-type-assertion': 'off',
       },

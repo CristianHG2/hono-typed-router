@@ -19,7 +19,7 @@ const Forbidden = z.object({ error: z.string(), message: z.string() });
 
 type Session = { userId: string; scopes: string[] };
 
-const buildApp = () => {
+function buildApp() {
   const root = defineRootContext('/api', []).middleware<{ session: Session }>(async (c, next) => {
     c.set('session', {
       userId: 'u1',
@@ -69,7 +69,9 @@ const buildApp = () => {
           handle(
             c,
             async ({ param: { id } }) => {
-              if (id === 'missing') throw new ThingNotFound();
+              if (id === 'missing') {
+                throw new ThingNotFound();
+              }
 
               return c.json({ id, name: 'Widget' }, 200);
             },
@@ -99,7 +101,7 @@ const buildApp = () => {
   expectTypeOf(app).toEqualTypeOf(makeRouter(root, ({ router }) => router, [things])());
 
   return app;
-};
+}
 
 describe('testClient', () => {
   const client = testClient(buildApp());

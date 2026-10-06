@@ -198,8 +198,9 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
 // The value form nested inline in another generic call infers the full path on an extended
 // context too.
 {
-  const bind = <P extends string>(ctx: TestContext<P, {}>, param: NoInfer<ParamKeys<P>>) =>
-    ctx.bindValue('org', param, (id) => ({ id }));
+  function bind<P extends string>(ctx: TestContext<P, {}>, param: NoInfer<ParamKeys<P>>) {
+    return ctx.bindValue('org', param, (id) => ({ id }));
+  }
 
   const root = defineRootContext('/api', []);
 

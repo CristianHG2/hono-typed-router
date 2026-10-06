@@ -27,22 +27,25 @@ export type ErrorArm<TErr extends Error, TResult> = Readonly<{
  * example a `TypedResponse` from `c.json(body, status)`. `handle(c, fn, arms)` and
  * `handleErrors` add this type to their return type.
  */
-export const onError = <TErr extends Error, TResult>(
+export function onError<TErr extends Error, TResult>(
   ctor: new (...args: any[]) => TErr,
   handle: (err: TErr, c: Context) => TResult | Rethrow | Promise<TResult | Rethrow>,
-): ErrorArm<TErr, TResult> => ({ ctor, handle });
+): ErrorArm<TErr, TResult> {
+  return { ctor, handle };
+}
 
 /** @deprecated Use {@link onError}. Removed in 2.0. */
 export const on = onError;
 
 /** Passes the error to the next matching arm. If no arm matches, the error is thrown again. */
-export const rethrow = (): Rethrow => RETHROW_SENTINEL;
+export function rethrow(): Rethrow {
+  return RETHROW_SENTINEL;
+}
 
 /** An arm handler that responds with `{ message }` and the status `statusCode`. */
-export const genericErrorHandler =
-  <T extends ContentfulStatusCode>(statusCode: T) =>
-  (err: Error, c: Context) =>
-    c.json({ message: err.message }, statusCode);
+export function genericErrorHandler<T extends ContentfulStatusCode>(statusCode: T) {
+  return (err: Error, c: Context) => c.json({ message: err.message }, statusCode);
+}
 
 /** @internal Any error arm. */
 export type AnyArm = ErrorArm<any, any>;
@@ -59,11 +62,11 @@ export type ArmsResponse<TArms extends ReadonlyArray<AnyArm>> = ArmResponse<TArm
  * error becomes its `cause`. A frozen or sealed error is thrown unchanged. A module-level
  * error object keeps the `cause` of its first throw.
  */
-const runArm = async (
+async function runArm(
   arm: AnyArm,
   err: Error,
   c: Context,
-): Promise<Awaited<ReturnType<AnyArm['handle']>>> => {
+): Promise<Awaited<ReturnType<AnyArm['handle']>>> {
   try {
     return await arm.handle(err, c);
   } catch (thrown) {
@@ -83,7 +86,7 @@ const runArm = async (
 
     throw thrown;
   }
-};
+}
 
 /**
  * Runs `body()`. If it throws an `Error`, the first arm that matches by `instanceof` handles
@@ -92,11 +95,11 @@ const runArm = async (
  * that an arm throws gets the original error as its `cause` when it has no `cause`. The return
  * type is `TBody` plus the response type of each arm.
  */
-export const handleErrors = async <TBody, const TArms extends ReadonlyArray<AnyArm>>(
+export async function handleErrors<TBody, const TArms extends ReadonlyArray<AnyArm>>(
   body: () => Promise<TBody>,
   arms: TArms,
   c: Context,
-): Promise<TBody | ArmsResponse<TArms>> => {
+): Promise<TBody | ArmsResponse<TArms>> {
   try {
     return await body();
   } catch (err) {
@@ -105,20 +108,22 @@ export const handleErrors = async <TBody, const TArms extends ReadonlyArray<AnyA
     }
 
     for (const arm of arms) {
-      if (err instanceof arm.ctor) {
-        const result = await runArm(arm, err, c);
-
-        if (result === RETHROW_SENTINEL) {
-          continue;
-        }
-
-        return result;
+      if (!(err instanceof arm.ctor)) {
+        continue;
       }
+
+      const result = await runArm(arm, err, c);
+
+      if (result === RETHROW_SENTINEL) {
+        continue;
+      }
+
+      return result;
     }
 
     throw err;
   }
-};
+}
 
 /** The constructor of an `Error` subclass, for `matchErrors`. */
 export type ErrorCtor = new (...args: any[]) => Error;
@@ -225,20 +230,17 @@ const TAG_KEY = '_tag';
  * }));
  * ```
  */
-export const matchErrors = <
+export function matchErrors<
   const TCtors extends readonly ErrorCtor[],
   THandlers extends MatchHandlers<TCtors> & NoExtraKeys<TCtors, THandlers>,
->(
-  errors: TCtors & CheckErrorCtors<TCtors>,
-  handlers: THandlers,
-): MatchArms<TCtors, THandlers> => {
+>(errors: TCtors & CheckErrorCtors<TCtors>, handlers: THandlers): MatchArms<TCtors, THandlers> {
   const ctors: readonly ErrorCtor[] = errors;
   // SAFETY: a handler runs only for an error that is `instanceof` a listed class and whose
   // runtime tag equals its key. The literal tags make that error an instance of the class of
   // the key. A subclass that sets the tag of another listed class breaks this.
   const table = new Map(Object.entries(handlers) as Array<[string, LooseHandler]>);
 
-  const resolve = (err: Error): LooseHandler | undefined => {
+  function resolve(err: Error): LooseHandler | undefined {
     const tag = TAG_KEY in err ? err[TAG_KEY] : undefined;
 
     for (const [key, handler] of table) {
@@ -248,7 +250,7 @@ export const matchErrors = <
     }
 
     return table.get(err.name);
-  };
+  }
 
   const arms = ctors.map((ctor, index) =>
     onError(ctor, (err, c) => {
@@ -267,4 +269,4 @@ export const matchErrors = <
   // SAFETY: `arms[i]` matches `errors[i]` and runs the handler of its tag. `MatchArms` gives
   // index `i` that type.
   return arms as MatchArms<TCtors, THandlers>;
-};
+}

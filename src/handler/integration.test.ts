@@ -13,7 +13,7 @@ const notFound = jsonResponse(z.object({ message: z.string() }), 'Not found');
 
 class RecordNotFoundError extends Error {}
 
-const buildRouter = (shouldThrow: boolean) => {
+function buildRouter(shouldThrow: boolean) {
   const ctx = defineRootContext('/api', []);
 
   return createRouter()(ctx, ({ app, defineRoute }) => {
@@ -32,7 +32,7 @@ const buildRouter = (shouldThrow: boolean) => {
         ])) as never,
     );
   })();
-};
+}
 
 describe('handle + error arms end-to-end', () => {
   it('returns the body response when nothing throws', async () => {

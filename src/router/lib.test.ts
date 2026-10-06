@@ -172,10 +172,11 @@ describe('createRouter', () => {
       },
     });
 
-    const build = (ctx: Parameters<typeof makeRouter>[0]) =>
-      makeRouter(ctx, ({ defineRoute }) => {
+    function build(ctx: Parameters<typeof makeRouter>[0]) {
+      return makeRouter(ctx, ({ defineRoute }) => {
         defineRoute('get', { responses: { 200: okResponse } });
       })();
+    }
 
     build(defineChildContext(root, '/things'));
     build(defineChildContext<typeof root>()('/things'));
@@ -944,18 +945,22 @@ describe('createRouter', () => {
 describe('mount guard', () => {
   const makeRouter = createRouter();
 
-  const leaf = (ctx: Parameters<typeof makeRouter>[0]) =>
-    makeRouter(ctx, ({ app, defineRoute }) =>
+  function leaf(ctx: Parameters<typeof makeRouter>[0]) {
+    return makeRouter(ctx, ({ app, defineRoute }) =>
       app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
         c.json({ ok: true }, 200),
       ),
     );
+  }
 
   it('throws when a value-form child is mounted under a different parent context', () => {
     const root = defineRootContext('/api', []);
 
     const admin = defineChildContext(root, '/admin').middleware(async (c, next) => {
-      if (!c.req.header('authorization')) return c.json({ error: 'UNAUTHORIZED' }, 401);
+      if (!c.req.header('authorization')) {
+        return c.json({ error: 'UNAUTHORIZED' }, 401);
+      }
+
       await next();
     });
 
@@ -1115,12 +1120,13 @@ describe('mount guard', () => {
 describe('mountRouter', () => {
   const makeRouter = createRouter();
 
-  const leaf = (ctx: Parameters<typeof makeRouter>[0]) =>
-    makeRouter(ctx, ({ app, defineRoute }) =>
+  function leaf(ctx: Parameters<typeof makeRouter>[0]) {
+    return makeRouter(ctx, ({ app, defineRoute }) =>
       app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
         c.json({ ok: c.get('hit' as never) === true }, 200),
       ),
     );
+  }
 
   it('is a named function', () => {
     expect(mountRouter.name).toBe('mountRouter');
@@ -1231,7 +1237,7 @@ describe('route middleware attaches at openapi', () => {
   const things = defineChildContext(root, '/things');
   const other = defineChildContext(root, '/other');
 
-  const named = (name: string): MiddlewareHandler => {
+  function named(name: string): MiddlewareHandler {
     const mw: MiddlewareHandler = async (_c, next) => {
       await next();
     };
@@ -1239,7 +1245,7 @@ describe('route middleware attaches at openapi', () => {
     Object.defineProperty(mw, 'name', { value: name });
 
     return mw;
-  };
+  }
 
   it('throws for a createRoute config in a router with options', () => {
     const cases: [Parameters<typeof createRouter>[0], string][] = [
@@ -1570,13 +1576,18 @@ describe('path params from the context path', () => {
   const thingById = defineChildContext(orgThings, '/:id');
   const makeRouter = createRouter();
 
-  const mountUnderOrgThings = (child: Parameters<typeof mountRouter>[1][number]) =>
-    mountRouter(root, [makeRouter(orgThings, ({ app }) => app, [child])]);
+  function mountUnderOrgThings(child: Parameters<typeof mountRouter>[1][number]) {
+    return mountRouter(root, [makeRouter(orgThings, ({ app }) => app, [child])]);
+  }
 
-  const doc = (app: { getOpenAPIDocument: (config: never) => unknown }) =>
-    app.getOpenAPIDocument({ openapi: '3.0.0', info: { title: 't', version: '1' } } as never) as {
+  function doc(app: { getOpenAPIDocument: (config: never) => unknown }) {
+    return app.getOpenAPIDocument({
+      openapi: '3.0.0',
+      info: { title: 't', version: '1' },
+    } as never) as {
       paths: Record<string, Record<string, { parameters?: { in: string; name: string }[] }>>;
     };
+  }
 
   it('validates and documents the params of the full mounted path', async () => {
     const byId = makeRouter(thingById, ({ app, defineRoute }) =>
@@ -1606,8 +1617,9 @@ describe('path params from the context path', () => {
 
     const operations = doc(app).paths['/api/orgs/{orgId}/things/{id}'];
 
-    const names = (method: string) =>
-      operations?.[method]?.parameters?.map((p) => `${p.in}:${p.name}`).sort();
+    function names(method: string) {
+      return operations?.[method]?.parameters?.map((p) => `${p.in}:${p.name}`).sort();
+    }
 
     expect(names('get')).toEqual(['path:id', 'path:orgId']);
     expect(names('put')).toEqual(['path:id', 'path:orgId']);

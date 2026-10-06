@@ -165,7 +165,9 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const flag = Math.random() > 0.5;
   expectTypeOf(
     makeRouter(ctx, ({ app }) => {
-      if (flag) return app;
+      if (flag) {
+        return app;
+      }
     })(),
   ).toEqualTypeOf<Router>();
   expectTypeOf(makeRouter(ctx, () => null)()).toEqualTypeOf<Router>();
@@ -655,7 +657,9 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
   type SchemaKeys<T> = T extends () => OpenAPIHono<any, infer S, any> ? keyof S : never;
 
-  const viaRouter = ({ app }: { app: OpenAPIHono<{ Variables: {} }> }) => app;
+  function viaRouter({ app }: { app: OpenAPIHono<{ Variables: {} }> }) {
+    return app;
+  }
 
   expectTypeOf(makeRouter(root, () => {})).toEqualTypeOf<Plain>();
   expectTypeOf(makeRouter(root, () => {}, [])).toEqualTypeOf<Plain>();

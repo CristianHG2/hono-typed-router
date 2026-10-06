@@ -17,13 +17,15 @@ export type RouterMount = {
  * `.middleware()` descendant of its parent. Its routes then run without middlewares that
  * its type expects. Limit: a curried child has no recorded parent, so it passes.
  */
-export const assertMountedUnderParent = (
+export function assertMountedUnderParent(
   context: RouteContext<string, object>,
   mount: RouterMount,
-) => {
+) {
   const identity = getRouteIdentity(context);
 
-  if (identity?.parentId === undefined || mount.lineage?.includes(identity.parentId)) return;
+  if (identity?.parentId === undefined || mount.lineage?.includes(identity.parentId)) {
+    return;
+  }
 
   const mountedUnder =
     mount.basePath === identity.parentPath
@@ -33,4 +35,4 @@ export const assertMountedUnderParent = (
   throw new TypeError(
     `hono-typed-router: ${mount.caller}: the child context '${context.path}' was defined under the context at '${identity.parentPath}', but its router is mounted under ${mountedUnder}. Mount the router of a child under the router of the context that it was defined from, or of a .middleware() descendant of that context.`,
   );
-};
+}

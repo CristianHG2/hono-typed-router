@@ -21,11 +21,11 @@ const DECLARED = new WeakMap<object, DeclaredRoute>();
 // In declaration order.
 const BY_ROUTER = new WeakMap<OpenAPIHono, DeclaredRoute[]>();
 
-export const recordRoute = (
+export function recordRoute(
   route: RouteConfig,
   owner: OpenAPIHono,
   mws: readonly MiddlewareHandler[],
-) => {
+) {
   const entry: DeclaredRoute = {
     route,
     owner,
@@ -37,9 +37,9 @@ export const recordRoute = (
 
   DECLARED.set(route, entry);
   addEntry(entry);
-};
+}
 
-const addEntry = (entry: DeclaredRoute) => {
+function addEntry(entry: DeclaredRoute) {
   const list = BY_ROUTER.get(entry.owner);
 
   if (list === undefined) {
@@ -47,10 +47,11 @@ const addEntry = (entry: DeclaredRoute) => {
   } else {
     list.push(entry);
   }
-};
+}
 
-const isRecorded = (app: OpenAPIHono, route: RouteConfig): boolean =>
-  BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
+function isRecorded(app: OpenAPIHono, route: RouteConfig): boolean {
+  return BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
+}
 
 /** A route config that `router.openapi` registered. */
 export type RegisteredRoute = {
@@ -63,28 +64,27 @@ export type RegisteredRoute = {
  * The route configs that `router.openapi` registered, each one time, in registration order.
  * Limit: a route on `app.basePath(...)` or a raw `app.get()` is not in the list.
  */
-export const registeredRoutes = (router: OpenAPIHono): RegisteredRoute[] =>
-  (BY_ROUTER.get(router) ?? [])
+export function registeredRoutes(router: OpenAPIHono): RegisteredRoute[] {
+  return (BY_ROUTER.get(router) ?? [])
     .filter((entry) => entry.registered)
     .map(({ route, declared }) => ({ route, declared }));
+}
 
 /**
  * Throws when a route of `router` has route middlewares that `openapi` did not attach. This
  * occurs when the callback registers the route on another app and returns that app.
  */
-export const assertRoutesAttached = (
-  router: OpenAPIHono,
-  fullPath: string,
-  caller: RouterCaller,
-) => {
+export function assertRoutesAttached(router: OpenAPIHono, fullPath: string, caller: RouterCaller) {
   const missed = BY_ROUTER.get(router)?.find((entry) => !entry.attached && entry.mws.length > 0);
 
-  if (missed === undefined) return;
+  if (missed === undefined) {
+    return;
+  }
 
   throw new TypeError(
     `hono-typed-router: ${caller}: the ${describeRoute(fullPath, missed.route)} has route middlewares that were not attached, because the callback returned a different app. Return the app that the callback received, or register the routes on it.`,
   );
-};
+}
 
 // Not the generic signature of `openapi`: a comparison with it costs about 146,000 type
 // instantiations in this file.
@@ -95,12 +95,14 @@ type OpenapiFn = (...args: never[]) => object;
  * config. It throws for a config with route middlewares from another app, because it cannot
  * run them. It records the other configs, so the duplicate check sees them.
  */
-export const attachOnOpenapi = (app: OpenAPIHono) => {
+export function attachOnOpenapi(app: OpenAPIHono) {
   wrapOpenapi(app, (route) => {
     const entry = DECLARED.get(route);
 
     if (entry === undefined || (entry.owner !== app && entry.mws.length === 0)) {
-      if (isRecorded(app, route)) return;
+      if (isRecorded(app, route)) {
+        return;
+      }
 
       addEntry({
         route,
@@ -114,13 +116,13 @@ export const attachOnOpenapi = (app: OpenAPIHono) => {
       attach(app, route, entry);
     }
   });
-};
+}
 
 /**
  * As {@link attachOnOpenapi}, but a config that did not come from the `defineRoute` of this
  * app throws, because `options` do not apply to it.
  */
-export const guardOpenapi = (app: OpenAPIHono, fullPath: string, options: readonly string[]) => {
+export function guardOpenapi(app: OpenAPIHono, fullPath: string, options: readonly string[]) {
   wrapOpenapi(app, (route) => {
     const entry = DECLARED.get(route);
 
@@ -135,9 +137,9 @@ export const guardOpenapi = (app: OpenAPIHono, fullPath: string, options: readon
 
     attach(app, route, entry);
   });
-};
+}
 
-const wrapOpenapi = (app: OpenAPIHono, before: (route: RouteConfig) => void) => {
+function wrapOpenapi(app: OpenAPIHono, before: (route: RouteConfig) => void) {
   // zod-openapi defines `openapi` as an arrow function, so a call without `this` works.
   // `openapiRoutes` calls `this.openapi`, so it also goes through the wrapper.
   const original: OpenapiFn = app.openapi;
@@ -153,9 +155,9 @@ const wrapOpenapi = (app: OpenAPIHono, before: (route: RouteConfig) => void) => 
     configurable: true,
     enumerable: true,
   });
-};
+}
 
-const attach = (app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) => {
+function attach(app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) {
   if (entry.owner !== app) {
     throw new TypeError(
       `hono-typed-router: openapi: the ${route.method.toUpperCase()} route was declared by the defineRoute() of another router. Its route middlewares were built for that router. Declare it with defineRoute(method, config) inside this callback.`,
@@ -164,7 +166,9 @@ const attach = (app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) => {
 
   entry.registered = true;
 
-  if (entry.attached || entry.mws.length === 0) return;
+  if (entry.attached || entry.mws.length === 0) {
+    return;
+  }
 
   entry.attached = true;
   // `on(METHOD, path)` and not `use(path)`: Hono serves HEAD through the GET handlers, so
@@ -176,7 +180,8 @@ const attach = (app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) => {
     // overload of `on`. A plain array spread selects the `(method, path[])` overload.
     ...(entry.mws as [MiddlewareHandler, ...MiddlewareHandler[]]),
   );
-};
+}
 
-const describeRoute = (fullPath: string, route: Partial<RouteConfig>): string =>
-  `${String(route.method ?? '').toUpperCase()} route at '${toHonoPath(honoJoin(fullPath, route.path ?? '/'))}'`;
+function describeRoute(fullPath: string, route: Partial<RouteConfig>): string {
+  return `${String(route.method ?? '').toUpperCase()} route at '${toHonoPath(honoJoin(fullPath, route.path ?? '/'))}'`;
+}

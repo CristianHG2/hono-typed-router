@@ -122,7 +122,10 @@ declare const readSession: (c: unknown) => Promise<Session>;
     async function requireSession(c, next) {
       const session = await verifySession(c.req.header('authorization'));
 
-      if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+      if (!session) {
+        return c.json({ error: 'UNAUTHORIZED' }, 401);
+      }
+
       c.set('session', session);
       await next();
     },
@@ -293,7 +296,7 @@ declare const readSession: (c: unknown) => Promise<Session>;
   const client = testClient(server);
   const headers = { authorization: 'Bearer test-token' };
 
-  const readMissingThing = async () => {
+  async function readMissingThing() {
     const res = await client.api.organizations[':organizationId'].things[':id'].$get(
       { param: { organizationId: 'org-1', id: 'missing' } },
       { headers },
@@ -313,7 +316,7 @@ declare const readSession: (c: unknown) => Promise<Session>;
     if (created.status === 201) {
       expectTypeOf(await created.json()).toEqualTypeOf<ThingRecord>();
     }
-  };
+  }
 
   expectTypeOf(readMissingThing).toBeFunction();
 }
@@ -355,7 +358,10 @@ const requireSession = createMiddleware<{ Variables: SessionVars }>(
   async function requireSession(c, next) {
     const session = await verifySession(c.req.header('authorization'));
 
-    if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+    if (!session) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
+
     c.set('session', session);
     await next();
   },
@@ -791,7 +797,9 @@ declare const logger: { info: (entry: LogEntry) => void };
     async function setOperationIdHeader(c, next) {
       await next();
 
-      if (route.operationId) c.header('X-Operation-Id', route.operationId);
+      if (route.operationId) {
+        c.header('X-Operation-Id', route.operationId);
+      }
     };
 
   const makeRouter = createRouter({
@@ -1060,9 +1068,8 @@ interface Limiter {
 declare const globalLimiter: Limiter;
 
 {
-  const rateLimitMiddleware =
-    (limiter: Limiter): RouteMiddlewareFactory =>
-    () =>
+  function rateLimitMiddleware(limiter: Limiter): RouteMiddlewareFactory {
+    return () =>
       async function rateLimit(c, next) {
         const verdict = await limiter.check(c.req.header('x-api-key') ?? '');
 
@@ -1074,6 +1081,7 @@ declare const globalLimiter: Limiter;
 
         await next();
       };
+  }
 
   const makeRouter = createRouter({
     routeMiddleware: [rateLimitMiddleware(globalLimiter)],
@@ -1136,8 +1144,9 @@ declare class UniqueConstraintError extends Error {
 
   expectTypeOf(getThingRouter).toBeFunction();
 
-  const recordNotFoundArm = (message: string) =>
-    onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+  function recordNotFoundArm(message: string) {
+    return onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+  }
 
   const updateThingRouter = makeRouter(thingByIdContext, ({ app, defineRoute }) => {
     const updateThingRoute = defineRoute('put', {
@@ -1155,7 +1164,9 @@ declare class UniqueConstraintError extends Error {
           SlugTaken: (e, ec) => ec.json({ message: `Slug already taken: ${e.slug}` }, 409),
         }),
         onError(UniqueConstraintError, (err, ec) => {
-          if (!err.columns.includes('slug')) return rethrow();
+          if (!err.columns.includes('slug')) {
+            return rethrow();
+          }
 
           return ec.json({ message: 'Slug already taken' }, 409);
         }),

@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Context } from 'hono';
 import { RETHROW, handleErrors, matchErrors, on, onError, rethrow } from './lib';
 
-const makeContext = () => {
+function makeContext() {
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));
 
   return { json } as unknown as Context;
-};
+}
 
 class FooError extends Error {
   constructor(message = 'foo') {
@@ -262,9 +262,11 @@ class Ghost extends Error {
   declare readonly _tag: 'Ghost';
 }
 
-const throwing = (err: unknown) => async () => {
-  throw err;
-};
+function throwing(err: unknown) {
+  return async () => {
+    throw err;
+  };
+}
 
 const throwText = throwing('text');
 

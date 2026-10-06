@@ -62,11 +62,11 @@ export type CheckBindLoader<TValue> =
  * Internal: the middleware that `.bind()` adds (see `RouteContext.bind`). `inspectRoutes`
  * shows its name, and `showRoutes` shows it only with `{ verbose: true }`.
  */
-export const createBindMiddleware = <TValue>(
+export function createBindMiddleware<TValue>(
   key: string,
   param: string,
   load: BindLoader<object, TValue>,
-): MiddlewareHandler => {
+): MiddlewareHandler {
   const handler: MiddlewareHandler = async (c, next) => {
     const raw = c.req.param(param);
 
@@ -87,4 +87,4 @@ export const createBindMiddleware = <TValue>(
   Object.defineProperty(handler, 'name', { value: `bind:${key}` });
 
   return handler;
-};
+}

@@ -121,13 +121,13 @@ type ParamsOf<T> = T extends (...args: infer P) => unknown ? P : never;
  */
 export interface ExtendRouteContextResult<K extends RouteContextKind> {
   defineRootContext: {
-    /** Must stay first (see `DefineRootContextFn`). */
+    /** Must stay first (see `defineRootContext`). */
     <TPath extends string, TVars extends object = {}>(
       path: TPath,
       middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
     ): ReaugmentContext<K, TPath, TVars>;
     /**
-     * Fold (see `DefineRootContextFn`).
+     * Fold (see `defineRootContext`).
      *
      * `_TVars` is internal. Do not pass it. Four explicit type arguments set the vars without
      * a check. A kind evaluates `this['vars'] & object`.
@@ -145,7 +145,7 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
     ): ReaugmentContext<K, TPath, _TVars>;
   };
   defineChildContext: {
-    /** Value form (see `DefineChildContextFn`). */
+    /** Value form (see `defineChildContext`). */
     <
       TPath extends string,
       TParentPath extends string,
@@ -155,7 +155,7 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
       parent: { path: TParentPath; vars: TParentVars; bindings?: TParentBindings },
       path: TPath,
     ): ReaugmentContext<K, ChildPath<TParentPath, TPath>, TParentVars>;
-    /** Curried form (see `DefineChildContextFn`). */
+    /** Curried form (see `defineChildContext`). */
     <
       TParentContext extends { path: string; vars: object } & CheckNoBindings<
         ContextBindings<TParentContext>
@@ -203,7 +203,7 @@ export function extendRouteContext<K extends RouteContextKind>(
 ): ExtendRouteContextResult<K> {
   const names = Object.keys(builders);
 
-  const augment = (base: RouteContext<string, object>): RouteContext<string, object> => {
+  function augment(base: RouteContext<string, object>): RouteContext<string, object> {
     const augmented: Record<string, unknown> = {
       ...base,
       // SAFETY: `RouteContext.middleware` is generic only in its types. At runtime it takes one
@@ -233,7 +233,7 @@ export function extendRouteContext<K extends RouteContextKind>(
 
     // SAFETY: `augmented` is a copy of `base` with new `middleware` and `bind`, plus the builders.
     return augmented as unknown as RouteContext<string, object>;
-  };
+  }
 
   // SAFETY: both functions return extended contexts. `ExtendRouteContextResult<K>` types them
   // through the kind `K`, which the runtime signatures cannot express.

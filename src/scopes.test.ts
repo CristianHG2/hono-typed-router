@@ -8,11 +8,11 @@ import { createScopeMiddleware } from './scopes';
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
-const buildApp = (
+function buildApp(
   available: readonly string[],
   security: { oauth2: string[] }[] | undefined,
   onForbidden?: (missing: string[]) => unknown,
-) => {
+) {
   const ctx = defineRootContext('/api', []);
 
   const makeRouter = createRouter({
@@ -26,7 +26,7 @@ const buildApp = (
     const r = defineRoute('get', { security, responses: { 200: okResponse } });
     router.openapi(r as never, (c) => c.json({ ok: true }) as never);
   })();
-};
+}
 
 describe('createScopeMiddleware', () => {
   it('passes the request through when all required scopes are present', async () => {
@@ -65,8 +65,9 @@ describe('createScopeMiddleware', () => {
     const factory = createScopeMiddleware({ resolve: () => [] });
     const meta = { path: '/' };
 
-    const route = (security?: Record<string, string[]>[]) =>
-      ({ method: 'get', path: '/', responses: {}, security }) as never;
+    function route(security?: Record<string, string[]>[]) {
+      return { method: 'get', path: '/', responses: {}, security } as never;
+    }
 
     expect(factory(route(), meta)).toBeUndefined();
     expect(factory(route([]), meta)).toBeUndefined();
@@ -87,8 +88,9 @@ describe('createScopeMiddleware', () => {
   it('names the middleware after the required scopes', () => {
     const factory = createScopeMiddleware({ resolve: () => [] });
 
-    const route = (security?: { oauth2: string[] }[]) =>
-      ({ method: 'get', path: '/', responses: {}, security }) as never;
+    function route(security?: { oauth2: string[] }[]) {
+      return { method: 'get', path: '/', responses: {}, security } as never;
+    }
 
     const meta = { path: '/' };
 
@@ -149,7 +151,9 @@ describe('createScopeMiddleware', () => {
       }),
     );
 
-    for (const res of responses) expect(res.status).toBe(403);
+    for (const res of responses) {
+      expect(res.status).toBe(403);
+    }
 
     const bodies = await Promise.all(responses.map((res) => res.json()));
     expect(bodies).toEqual([

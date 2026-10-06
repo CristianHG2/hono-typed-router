@@ -107,7 +107,10 @@ class SameTagAsCart extends Error {
 // that only rethrows adds nothing.
 {
   const c = {} as Context;
-  const body = async () => c.json({ ok: true }, 200);
+
+  async function body() {
+    return c.json({ ok: true }, 200);
+  }
 
   const viaMatch = handle(
     c,

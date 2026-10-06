@@ -59,7 +59,9 @@ const CreateThing = z.object({ name: z.string().min(1) });
 const requireSession = createMiddleware<{ Variables: SessionVars }>(
   async function requireSession(c, next) {
     const session = await verifySession(c.req.header('authorization'));
-    if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+    if (!session) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
     c.set('session', session);
     await next();
   },
@@ -299,7 +301,9 @@ export const trackRequest = createMiddleware<{ Variables: RequestVars }>(
 export const requireSession = createMiddleware<{ Variables: SessionVars }>(
   async function requireSession(c, next) {
     const session = await verifySession(c.req.header('authorization'));
-    if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+    if (!session) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
     c.set('session', session);
     await next();
   },
@@ -858,7 +862,9 @@ const requestLogMiddleware: RouteMiddlewareFactory = (route) =>
 const operationIdHeaderMiddleware: RouteMiddlewareFactory = (route) =>
   async function setOperationIdHeader(c, next) {
     await next();
-    if (route.operationId) c.header('X-Operation-Id', route.operationId);
+    if (route.operationId) {
+      c.header('X-Operation-Id', route.operationId);
+    }
   };
 
 const makeRouter = createRouter({
@@ -1121,9 +1127,8 @@ Each child keeps the options of the router maker that made it.
 When the middleware of a route middleware factory returns a `Response`, the chain stops. Use this for expected rejections, such as 403 or 429. For real errors, throw. Then `app.onError` formats them in one place.
 
 ```ts
-const rateLimitMiddleware =
-  (limiter: Limiter): RouteMiddlewareFactory =>
-  () =>
+function rateLimitMiddleware(limiter: Limiter): RouteMiddlewareFactory {
+  return () =>
     async function rateLimit(c, next) {
       const verdict = await limiter.check(c.req.header('x-api-key') ?? '');
       if (!verdict.allowed) {
@@ -1133,6 +1138,7 @@ const rateLimitMiddleware =
       }
       await next();
     };
+}
 
 const makeRouter = createRouter({
   routeMiddleware: [rateLimitMiddleware(globalLimiter)],
@@ -1186,8 +1192,9 @@ const getThingRouter = makeRouter(thingByIdContext, ({ app, defineRoute }) => {
 `onError(ErrorClass, handler)` makes one arm for one class. Use it for a class without a literal tag, such as the error of a library. Also use it to decide, for each error, whether the arm handles it. Spread `matchErrors(...)` next to it:
 
 ```ts
-export const recordNotFoundArm = (message: string) =>
-  onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+export function recordNotFoundArm(message: string) {
+  return onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+}
 
 const updateThingRouter = makeRouter(thingByIdContext, ({ app, defineRoute }) => {
   const updateThingRoute = defineRoute('put', {
@@ -1205,7 +1212,9 @@ const updateThingRouter = makeRouter(thingByIdContext, ({ app, defineRoute }) =>
         SlugTaken: (e, ec) => ec.json({ message: `Slug already taken: ${e.slug}` }, 409),
       }),
       onError(UniqueConstraintError, (err, ec) => {
-        if (!err.columns.includes('slug')) return rethrow();
+        if (!err.columns.includes('slug')) {
+          return rethrow();
+        }
         return ec.json({ message: 'Slug already taken' }, 409);
       }),
       recordNotFoundArm('Thing not found'),

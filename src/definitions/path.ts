@@ -30,7 +30,7 @@ const OPENAPI_PARAM = /^\{([^/}]*)\}?/;
  * segment starts with `{`. The braces are counted, so a `/` inside a Hono regex param
  * (`:id{a/{x}}`) does not start a segment.
  */
-const honoSyntax = (path: string): string | undefined => {
+function honoSyntax(path: string): string | undefined {
   let depth = 0;
   let out = '';
   let found = false;
@@ -45,9 +45,13 @@ const honoSyntax = (path: string): string | undefined => {
         : null;
 
     if (match === null) {
-      if (char === '{') depth += 1;
+      if (char === '{') {
+        depth += 1;
+      }
 
-      if (char === '}') depth = Math.max(0, depth - 1);
+      if (char === '}') {
+        depth = Math.max(0, depth - 1);
+      }
 
       out += char;
       index += 1;
@@ -61,17 +65,14 @@ const honoSyntax = (path: string): string | undefined => {
   }
 
   return found ? out : undefined;
-};
+}
 
 /**
  * Internal. Rejects the OpenAPI `{param}` syntax, because Hono mounts it literally and the
  * path returns 404. The check runs only at runtime, because a type check also rejects a
  * generic path parameter.
  */
-export const assertHonoPath = (
-  fn: 'defineRootContext' | 'defineChildContext',
-  path: string,
-): void => {
+export function assertHonoPath(fn: 'defineRootContext' | 'defineChildContext', path: string): void {
   const fixed = honoSyntax(path);
 
   if (fixed !== undefined) {
@@ -79,4 +80,4 @@ export const assertHonoPath = (
       `hono-typed-router: ${fn}: the path '${path}' uses OpenAPI {param} syntax. Context paths use Hono syntax: write '${fixed}'.`,
     );
   }
-};
+}

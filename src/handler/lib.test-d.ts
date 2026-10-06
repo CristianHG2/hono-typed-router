@@ -44,7 +44,10 @@ class ConflictError extends Error {}
 
   type Conflict = typeof conflict409;
 
-  const body = async () => c.json({ ok: true }, 200);
+  async function body() {
+    return c.json({ ok: true }, 200);
+  }
+
   const notFoundArm = onError(MissingError, (_e, ec) => ec.json({ message: 'nf' }, 404));
   const conflictArm = onError(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409));
   const asyncArm = onError(MissingError, async (_e, ec) => ec.json({ message: 'nf' }, 404));
@@ -152,10 +155,11 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   const ok200 = c.json({ ok: true }, 200);
   const conflict409 = c.json({ message: 'x' }, 409);
 
-  const run = () =>
-    handler(c, async () => c.json({ ok: true }, 200)).errors([
+  function run() {
+    return handler(c, async () => c.json({ ok: true }, 200)).errors([
       on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409)),
     ]);
+  }
 
   type R = Awaited<ReturnType<typeof run>>;
 
@@ -165,12 +169,18 @@ createRouter()(ctx, ({ app, defineRoute }) => {
 // An arm that only rethrows adds no response. The result equals the result without arms.
 {
   const c = {} as Context;
-  const noArms = () => handler(c, async () => c.json({ ok: true }, 200)).errors([]);
+
+  function noArms() {
+    return handler(c, async () => c.json({ ok: true }, 200)).errors([]);
+  }
 
   type NoArms = Awaited<ReturnType<typeof noArms>>;
 
-  const run = () =>
-    handler(c, async () => c.json({ ok: true }, 200)).errors([on(ConflictError, () => rethrow())]);
+  function run() {
+    return handler(c, async () => c.json({ ok: true }, 200)).errors([
+      on(ConflictError, () => rethrow()),
+    ]);
+  }
 
   type R = Awaited<ReturnType<typeof run>>;
 
@@ -193,7 +203,10 @@ createRouter()(ctx, ({ app, defineRoute }) => {
 
   type Conflict = typeof conflict409;
 
-  const body = async () => c.json({ ok: true }, 200);
+  async function body() {
+    return c.json({ ok: true }, 200);
+  }
+
   const notFoundArm = on(MissingError, (_e, ec) => ec.json({ message: 'nf' }, 404));
   const conflictArm = on(ConflictError, (_e, ec) => ec.json({ message: 'x' }, 409));
   const rethrowArm = on(ConflictError, () => rethrow());

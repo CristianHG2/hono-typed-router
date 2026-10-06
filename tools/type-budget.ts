@@ -55,7 +55,9 @@ interface Budget {
 function readCount(output: string, label: string): number {
   const match = new RegExp(`^${label}:\\s+(\\d+)`, 'mu').exec(output);
 
-  if (!match?.[1]) throw new Error(`type-budget: no "${label}" line in the tsc output`);
+  if (!match?.[1]) {
+    throw new Error(`type-budget: no "${label}" line in the tsc output`);
+  }
 
   return Number(match[1]);
 }

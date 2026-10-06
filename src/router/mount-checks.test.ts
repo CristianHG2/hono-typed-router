@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createRoute, z, type OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
+import type { MiddlewareHandler } from 'hono';
 import { inspectRoutes } from 'hono/dev';
 import { defineChildContext, defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
@@ -14,16 +15,17 @@ const makeRouter = createRouter();
 type Method = 'get' | 'post' | 'head';
 
 // A router with one route for each method, at the context path or at `path`.
-const routes = (ctx: Parameters<typeof makeRouter>[0], methods: Method[], path = '/') =>
-  makeRouter(ctx, ({ app, defineRoute }) => {
+function routes(ctx: Parameters<typeof makeRouter>[0], methods: Method[], path = '/') {
+  return makeRouter(ctx, ({ app, defineRoute }) => {
     for (const method of methods) {
       app.openapi(defineRoute(method, { path, responses: { 200: okResponse } }), (c) =>
         c.json({ ok: true }, 200),
       );
     }
   });
+}
 
-const pass = async (_c: unknown, next: () => Promise<void>) => {
+const pass: MiddlewareHandler = async (_c, next) => {
   await next();
 };
 
@@ -33,7 +35,9 @@ describe('duplicate routes', () => {
   const b = defineChildContext<typeof root>()('/things');
 
   it('throws when two children declare the same method and path', () => {
-    const build = () => makeRouter(root, () => {}, [routes(a, ['get']), routes(b, ['get'])])();
+    function build() {
+      return makeRouter(root, () => {}, [routes(a, ['get']), routes(b, ['get'])])();
+    }
 
     expect(build).toThrow(TypeError);
     expect(build).toThrow(
@@ -153,11 +157,11 @@ describe('duplicate routes', () => {
 describe("duplicate routes under a child at the segment '/' or ''", () => {
   const root = defineRootContext('/api', []);
 
-  const parentRoute = (
+  function parentRoute(
     ctx: Parameters<typeof makeRouter>[0],
     children: Parameters<typeof makeRouter>[2],
-  ) =>
-    makeRouter(
+  ) {
+    return makeRouter(
       ctx,
       ({ app, defineRoute }) => {
         app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
@@ -166,6 +170,7 @@ describe("duplicate routes under a child at the segment '/' or ''", () => {
       },
       children,
     );
+  }
 
   it('serves the routes of a value-form child at the parent path, where the keys say', async () => {
     const child = defineChildContext(root, '/');
@@ -256,8 +261,9 @@ describe('children order', () => {
     "hono-typed-router: makeRouter: the child '/:id' is mounted before '/stats'. Hono matches in registration order, so '/:id' gets the requests to GET '/api/stats'. Put children with literal segments first.";
 
   it('throws for a param child before a literal sibling', () => {
-    const build = () =>
-      makeRouter(root, () => {}, [routes(byId, ['get']), routes(stats, ['get'])])();
+    function build() {
+      return makeRouter(root, () => {}, [routes(byId, ['get']), routes(stats, ['get'])])();
+    }
 
     expect(build).toThrow(TypeError);
     expect(build).toThrow(message);
@@ -315,10 +321,13 @@ describe('children order', () => {
   });
 
   // `/stats` with `GET /x`: the message names that route.
-  const statsX = () => routes(stats, ['get'], '/x');
+  function statsX() {
+    return routes(stats, ['get'], '/x');
+  }
 
-  const nested = (prefix: string, tail: string) =>
-    `the child '/:id' is mounted before '/stats'. Hono matches in registration order, so '/:id' gets the requests to GET '/api/stats${tail}'. ${prefix}`;
+  function nested(prefix: string, tail: string) {
+    return `the child '/:id' is mounted before '/stats'. Hono matches in registration order, so '/:id' gets the requests to GET '/api/stats${tail}'. ${prefix}`;
+  }
 
   it('accepts a param route that matches no sibling route', async () => {
     // `GET /:id` vs `GET /stats/x`, and `GET /:id/sub` vs `GET /stats`.
@@ -389,19 +398,25 @@ describe('duplicate routes with createRoute configs', () => {
   const b = defineChildContext<typeof root>()('/things');
 
   // SAFETY: the registry keys apps by identity. The env type of the app has no effect.
-  const recorded = (app: unknown) => registeredRoutes(app as OpenAPIHono);
+  function recorded(app: unknown) {
+    return registeredRoutes(app as OpenAPIHono);
+  }
 
-  const rawGet = (path = '/') =>
-    createRoute({ method: 'get', path, responses: { 200: okResponse } });
+  function rawGet(path = '/') {
+    return createRoute({ method: 'get', path, responses: { 200: okResponse } });
+  }
 
   // A router that registers `config` with `app.openapi`, as the callback gives it.
-  const withRaw = (ctx: Parameters<typeof makeRouter>[0], config: RouteConfig) =>
-    makeRouter(ctx, ({ app }) => {
+  function withRaw(ctx: Parameters<typeof makeRouter>[0], config: RouteConfig) {
+    return makeRouter(ctx, ({ app }) => {
       app.openapi(config, (c) => c.json({ ok: true }, 200) as never);
     });
+  }
 
   it('throws when two children register the same createRoute config', () => {
-    const build = () => makeRouter(root, () => {}, [withRaw(a, rawGet()), withRaw(b, rawGet())])();
+    function build() {
+      return makeRouter(root, () => {}, [withRaw(a, rawGet()), withRaw(b, rawGet())])();
+    }
 
     expect(build).toThrow(TypeError);
     expect(build).toThrow(
@@ -527,7 +542,9 @@ describe('duplicate routes with createRoute configs', () => {
   });
 
   it('throws through mountRouter', () => {
-    const build = () => mountRouter(root, [withRaw(a, rawGet()), withRaw(b, rawGet())]);
+    function build() {
+      return mountRouter(root, [withRaw(a, rawGet()), withRaw(b, rawGet())]);
+    }
 
     expect(build).toThrow(TypeError);
     expect(build).toThrow(

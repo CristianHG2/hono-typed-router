@@ -217,7 +217,9 @@ interface SessionVars {
 const requireSession = createMiddleware<{ Variables: SessionVars }>(
   async function requireSession(c, next) {
     const session = await findSession(c.req.header('authorization'));
-    if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+    if (!session) {
+      return c.json({ error: 'UNAUTHORIZED' }, 401);
+    }
     c.set('session', session);
     await next();
   },

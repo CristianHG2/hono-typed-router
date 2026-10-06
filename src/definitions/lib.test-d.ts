@@ -222,11 +222,12 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 // The value form nested inline in another generic call infers the full path. Thus a helper
 // typed by path params accepts the param name.
 {
-  const bind = <P extends string>(ctx: RouteContext<P, {}>, param: NoInfer<ParamKeys<P>>) =>
-    ctx.middleware<{ org: { id: string } }>(async (c, next) => {
+  function bind<P extends string>(ctx: RouteContext<P, {}>, param: NoInfer<ParamKeys<P>>) {
+    return ctx.middleware<{ org: { id: string } }>(async (c, next) => {
       c.set('org', { id: c.req.param(param) ?? '' });
       await next();
     });
+  }
 
   const root = defineRootContext('/api', []);
 
@@ -847,8 +848,14 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 // its path through and keep the literal type.
 {
   const root = defineRootContext('/api');
-  const child = <P extends string>(path: P) => defineChildContext(root, path);
-  const wrap = <P extends string>(path: P) => defineRootContext(path);
+
+  function child<P extends string>(path: P) {
+    return defineChildContext(root, path);
+  }
+
+  function wrap<P extends string>(path: P) {
+    return defineRootContext(path);
+  }
 
   expectTypeOf(child('/things/:id').path).toEqualTypeOf<'/api/things/:id'>();
   expectTypeOf(wrap('/api/:id').path).toEqualTypeOf<'/api/:id'>();

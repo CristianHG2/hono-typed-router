@@ -13,7 +13,9 @@ type Organization = { id: string; name: string };
 
 const organizations: Record<string, Organization> = { acme: { id: 'acme', name: 'Acme' } };
 
-const findOrganization = async (id: string) => organizations[id] ?? null;
+async function findOrganization(id: string) {
+  return organizations[id] ?? null;
+}
 
 const okResponse = jsonResponse(z.object({ name: z.string() }), 'OK');
 
@@ -22,15 +24,16 @@ const valueResponse = jsonResponse(z.object({ value: z.unknown() }), 'OK');
 const makeRouter = createRouter();
 
 /** A router with one GET route that returns the var `x` of the context. */
-const valueRouter = (ctx: RouteContext<string, { x: unknown }>) =>
-  makeRouter(ctx, ({ app, defineRoute }) => {
+function valueRouter(ctx: RouteContext<string, { x: unknown }>) {
+  return makeRouter(ctx, ({ app, defineRoute }) => {
     app.openapi(defineRoute('get', { responses: { 200: valueResponse } }), (c) =>
       c.json({ value: c.var.x }, 200),
     );
   });
+}
 
 /** The lines that `run` writes with `console.log`. */
-const captureLog = (run: () => void): string => {
+function captureLog(run: () => void): string {
   const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   try {
@@ -40,14 +43,15 @@ const captureLog = (run: () => void): string => {
   } finally {
     spy.mockRestore();
   }
-};
+}
 
-const nameRouter = (ctx: RouteContext<'/orgs/:organizationId', { organization: Organization }>) =>
-  makeRouter(ctx, ({ app, defineRoute }) => {
+function nameRouter(ctx: RouteContext<'/orgs/:organizationId', { organization: Organization }>) {
+  return makeRouter(ctx, ({ app, defineRoute }) => {
     app.openapi(defineRoute('get', { responses: { 200: okResponse } }), (c) =>
       c.json({ name: c.var.organization.name }, 200),
     );
   });
+}
 
 describe('RouteContext.bind', () => {
   it('sets the var from the loader and runs the route', async () => {

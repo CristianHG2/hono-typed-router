@@ -108,18 +108,25 @@ const ctx = defineChildContext(authed, '/things/:id');
 // A loader whose return type is a type parameter is accepted. The check relies on this
 // wildcard behavior (see `BindLoadedKind`). A TypeScript upgrade that changes it fails here.
 {
-  const viaFind = <T>(find: (id: string) => Promise<T | null>) =>
-    ctx.bind('x', 'id', (id) => find(id));
+  function viaFind<T>(find: (id: string) => Promise<T | null>) {
+    return ctx.bind('x', 'id', (id) => find(id));
+  }
 
-  const viaLoader = <TValue>(load: BindLoader<Vars, TValue>) => ctx.bind('x', 'id', load);
+  function viaLoader<TValue>(load: BindLoader<Vars, TValue>) {
+    return ctx.bind('x', 'id', load);
+  }
 
-  const viaObject = <T extends object>(get: (id: string) => T | undefined) =>
-    ctx.bind('x', 'id', (id) => get(id));
+  function viaObject<T extends object>(get: (id: string) => T | undefined) {
+    return ctx.bind('x', 'id', (id) => get(id));
+  }
 
-  const viaUndefined = <T>(find: (id: string) => Promise<T | undefined>) =>
-    ctx.bind('x', 'id', (id) => find(id));
+  function viaUndefined<T>(find: (id: string) => Promise<T | undefined>) {
+    return ctx.bind('x', 'id', (id) => find(id));
+  }
 
-  const viaPlain = <T>(get: (id: string) => T) => ctx.bind('x', 'id', (id) => get(id));
+  function viaPlain<T>(get: (id: string) => T) {
+    return ctx.bind('x', 'id', (id) => get(id));
+  }
 
   expectTypeOf(viaFind(findThing).vars).toEqualTypeOf<Vars & { x: Thing }>();
   expectTypeOf(viaLoader(findThing).vars).toEqualTypeOf<Vars & { x: Thing }>();

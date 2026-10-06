@@ -15,8 +15,8 @@ import { createRouter } from './router';
 
 const Body = z.object({ name: z.string() });
 
-const buildApp = () =>
-  createRouter()(defineRootContext('/api', []), ({ app, defineRoute }) => {
+function buildApp() {
+  return createRouter()(defineRootContext('/api', []), ({ app, defineRoute }) => {
     const r = defineRoute('post', {
       request: jsonRequest(Body, 'Create'),
       responses: { 200: jsonResponse(z.object({ got: z.unknown() }), 'OK') },
@@ -24,6 +24,7 @@ const buildApp = () =>
 
     app.openapi(r as never, (c) => c.json({ got: c.req.valid('json' as never) }) as never);
   })();
+}
 
 describe('jsonRequest', () => {
   it('marks the body as required', () => {

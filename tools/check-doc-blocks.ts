@@ -119,7 +119,9 @@ function statementEnd(text: string, start: number): number {
     } else if (char === ';' && depth === 0) {
       return index + 1;
     } else {
-      if (OPENERS.has(char)) depth += 1;
+      if (OPENERS.has(char)) {
+        depth += 1;
+      }
 
       if (CLOSERS.has(char)) {
         depth -= 1;
@@ -178,7 +180,10 @@ function extractBlocks(markdown: string): Extracted {
 
     if (open) {
       if (line.trim() === '```') {
-        if (!skipping) blocks.push(open);
+        if (!skipping) {
+          blocks.push(open);
+        }
+
         open = undefined;
       } else {
         open.code += `${line}\n`;
@@ -187,14 +192,18 @@ function extractBlocks(markdown: string): Extracted {
       const [, indent = '', language = ''] = fence;
       const ts = TS_LANGUAGES.has(language);
 
-      if (ts && indent !== '' && !marked) indented.push(index + 1);
+      if (ts && indent !== '' && !marked) {
+        indented.push(index + 1);
+      }
 
       // Skip the body of a non-ts or indented fence, so that it is not read as prose.
       open = { line: index + 1, code: '' };
       skipping = !ts || indent !== '' || marked;
     }
 
-    if (line.trim() !== '') lastNonBlank = line;
+    if (line.trim() !== '') {
+      lastNonBlank = line;
+    }
   }
 
   return { blocks, indented };
@@ -219,16 +228,18 @@ for (const [docPath, mirrorPath] of PAIRS) {
   for (const block of blocks) {
     checked += 1;
 
-    if (!mirror.includes(normalize(block.code))) {
-      failures += 1;
-
-      const head = block.code.split('\n').slice(0, 3);
-
-      console.error(
-        `${docPath}:${block.line} ts block has no twin in ${mirrorPath}. Copy the block into ${mirrorPath} after its setup lines, or put ${SKIP_MARKER} above the fence.`,
-      );
-      console.error(head.map((line) => `    ${line}`).join('\n'));
+    if (mirror.includes(normalize(block.code))) {
+      continue;
     }
+
+    failures += 1;
+
+    const head = block.code.split('\n').slice(0, 3);
+
+    console.error(
+      `${docPath}:${block.line} ts block has no twin in ${mirrorPath}. Copy the block into ${mirrorPath} after its setup lines, or put ${SKIP_MARKER} above the fence.`,
+    );
+    console.error(head.map((line) => `    ${line}`).join('\n'));
   }
 }
 

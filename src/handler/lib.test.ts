@@ -8,7 +8,7 @@ type FakeContext = Context & {
   json: ReturnType<typeof vi.fn>;
 };
 
-const makeContext = (validated: Record<string, unknown> = {}): FakeContext => {
+function makeContext(validated: Record<string, unknown> = {}): FakeContext {
   const valid = vi.fn((target: string) => validated[target]);
   const json = vi.fn((body: unknown, status?: number) => ({ body, status }));
 
@@ -16,7 +16,7 @@ const makeContext = (validated: Record<string, unknown> = {}): FakeContext => {
     req: { valid },
     json,
   } as unknown as FakeContext;
-};
+}
 
 class RecordNotFoundError extends Error {
   constructor(message = 'not found') {
@@ -25,8 +25,9 @@ class RecordNotFoundError extends Error {
   }
 }
 
-const recordNotFoundArm = (message: string) =>
-  onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+function recordNotFoundArm(message: string) {
+  return onError(RecordNotFoundError, (_err, c) => c.json({ message }, 404));
+}
 
 describe('handle', () => {
   it('exposes validated inputs by target name via a destructurable proxy', async () => {

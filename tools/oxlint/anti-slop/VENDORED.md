@@ -11,3 +11,4 @@
 
 - Reformatted with the repo's oxfmt config (upstream uses tabs and double quotes); no logic changes.
   Compare against upstream with `git diff --no-index -w` or reformat the incoming copy first.
+- Added the local rule `rules/prefer-early-return.ts` and its `prefer-early-return` entry in `index.ts`. Upstream does not have them, so keep both when you update. The rule reports a final `if` without `else` that holds the rest of a function or loop body.

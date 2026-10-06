@@ -52,7 +52,9 @@ export function createScopeMiddleware(
   return (route) => {
     const required = extractRequiredScopes(route);
 
-    if (required.length === 0) return;
+    if (required.length === 0) {
+      return;
+    }
 
     const middleware: MiddlewareHandler = async (c, next) => {
       const available = await options.resolve(c);
@@ -83,20 +85,26 @@ export function createScopeMiddleware(
   };
 }
 
-const extractRequiredScopes = (route: RouteConfig): string[] => {
-  if (!route.security || route.security.length === 0) return [];
+function extractRequiredScopes(route: RouteConfig): string[] {
+  if (!route.security || route.security.length === 0) {
+    return [];
+  }
 
   const seen = new Set<string>();
 
   for (const entry of route.security) {
     for (const scopes of Object.values(entry)) {
-      if (!Array.isArray(scopes)) continue;
+      if (!Array.isArray(scopes)) {
+        continue;
+      }
 
       for (const scope of scopes) {
-        if (typeof scope === 'string') seen.add(scope);
+        if (typeof scope === 'string') {
+          seen.add(scope);
+        }
       }
     }
   }
 
   return [...seen];
-};
+}

@@ -138,14 +138,21 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
 // Generic helpers compile, because the checks skip the permissive wildcard of a type parameter.
 // See `extend-bindings.ts`.
 {
-  const valueHelper = <B extends object>(p: RouteContext<'/api', {}, B>) =>
-    ext.defineChildContext(p, '/x');
+  function valueHelper<B extends object>(p: RouteContext<'/api', {}, B>) {
+    return ext.defineChildContext(p, '/x');
+  }
 
-  const curriedHelper = <B extends object>(_p: RouteContext<'/api', {}, B>) =>
-    ext.defineChildContext<RouteContext<'/api', {}, B>>()('/x');
+  function curriedHelper<B extends object>(_p: RouteContext<'/api', {}, B>) {
+    return ext.defineChildContext<RouteContext<'/api', {}, B>>()('/x');
+  }
 
-  const parentHelper = <P extends ParentContext>(p: P) => ext.defineChildContext(p, '/x');
-  const curriedParentHelper = <P extends ParentContext>() => ext.defineChildContext<P>()('/x');
+  function parentHelper<P extends ParentContext>(p: P) {
+    return ext.defineChildContext(p, '/x');
+  }
+
+  function curriedParentHelper<P extends ParentContext>() {
+    return ext.defineChildContext<P>()('/x');
+  }
 
   const api = baseRoot('/api');
   expectTypeOf(valueHelper(api).path).toEqualTypeOf<'/api/x'>();

@@ -123,9 +123,11 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
 // api.md "`RouteContext<TPath, TVars>`": a reusable middleware, and its second application.
 {
-  const findSession = async (
+  async function findSession(
     _header: string | undefined,
-  ): Promise<{ userId: string; scopes: string[] } | null> => null;
+  ): Promise<{ userId: string; scopes: string[] } | null> {
+    return null;
+  }
 
   interface Session {
     userId: string;
@@ -140,7 +142,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     async function requireSession(c, next) {
       const session = await findSession(c.req.header('authorization'));
 
-      if (!session) return c.json({ error: 'UNAUTHORIZED' }, 401);
+      if (!session) {
+        return c.json({ error: 'UNAUTHORIZED' }, 401);
+      }
+
       c.set('session', session);
       await next();
     },
