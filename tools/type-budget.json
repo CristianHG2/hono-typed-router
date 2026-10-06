@@ -1,0 +1,16 @@
+{
+  "note": "Written by `pnpm check:type-budget --update`. Counts use `tsc --checkers 1`, so they do not depend on the CPU count and are lower than the default multi-checker counts. perRoute = (fixture - baseline) / (routers * routesPerRouter). Each max is current + 10%.",
+  "measuredOn": "2026-10-06",
+  "typescript": "7.0.2",
+  "checkers": 1,
+  "testTypes": {
+    "current": 2114128,
+    "max": 2325541
+  },
+  "perRoute": {
+    "routers": 50,
+    "routesPerRouter": 2,
+    "current": 2296,
+    "max": 2526
+  }
+}

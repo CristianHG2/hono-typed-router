@@ -1,7 +1,7 @@
 {
   "name": "hono-typed-router",
-  "version": "0.3.0",
-  "description": "Path-typed router builder for Hono with composable middleware contexts and per-route policy hooks.",
+  "version": "1.0.0",
+  "description": "Path-typed router builder for Hono and @hono/zod-openapi, with typed middleware contexts and route middleware factories.",
   "keywords": [
     "hono",
     "router",
@@ -49,6 +49,7 @@
     "dist",
     "docs",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "publishConfig": {
@@ -60,22 +61,46 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:types": "tsc -p tsconfig.test-types.json --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm typecheck && pnpm test:types && pnpm test && pnpm build",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "check:docs": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/check-doc-blocks.ts",
+    "check:type-budget": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/type-budget.ts",
+    "check": "pnpm -s typecheck && pnpm -s test:types && pnpm -s check:docs && pnpm -s lint && pnpm -s fmt:check && pnpm -s test && pnpm -s check:type-budget && pnpm -s build --logLevel error",
+    "prepare": "lefthook install || true",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:publish": "pnpm build && changeset publish"
   },
   "peerDependencies": {
-    "@hono/zod-openapi": "^1.1.5",
+    "@hono/zod-openapi": "^1.6.2",
     "hono": "^4.12.4",
-    "zod": "^4.0.0"
+    "zod": "^4.1.0"
   },
   "devDependencies": {
-    "@hono/zod-openapi": "^1.1.5",
-    "@types/node": "^22.13.11",
-    "expect-type": "^1.2.0",
-    "hono": "^4.12.4",
-    "tsdown": "^0.15.5",
-    "typescript": "^5.9.2",
-    "vitest": "^4.0.17",
-    "zod": "4.1.12"
+    "@changesets/cli": "^3.0.3",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
+    "@hono/zod-openapi": "^1.6.3",
+    "@oxlint/plugins": "1.86.0",
+    "@types/node": "^26.6.4",
+    "expect-type": "^1.4.0",
+    "hono": "^4.13.12",
+    "lefthook": "^2.1.16",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3",
+    "zod": "^4.6.5"
   },
-  "packageManager": "pnpm@10.26.2"
+  "packageManager": "pnpm@10.26.2",
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "lefthook"
+    ]
+  }
 }

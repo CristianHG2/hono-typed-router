@@ -12,5 +12,7 @@ export default defineConfig({
   treeshake: true,
   target: 'es2022',
   platform: 'neutral',
-  external: ['hono', '@hono/zod-openapi', 'zod'],
+  deps: {
+    neverBundle: ['hono', '@hono/zod-openapi', 'zod'],
+  },
 });

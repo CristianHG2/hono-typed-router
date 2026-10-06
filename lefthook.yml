@@ -1,0 +1,18 @@
+# Git hooks; installed by `pnpm install` via the `prepare` script.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: fmt
+      glob: '*.{ts,mts,cts,js,mjs,cjs,json,jsonc,md,yml,yaml}'
+      run: pnpm exec oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+    - name: lint
+      glob: '*.{ts,mts,cts,js,mjs,cjs}'
+      run: pnpm exec oxlint {staged_files}
+    - name: docs
+      glob: '{*.md,src/*docs.test-d.ts}'
+      run: pnpm check:docs
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: pnpm exec commitlint --edit {1}

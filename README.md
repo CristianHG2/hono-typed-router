@@ -1,11 +1,11 @@
 # hono-typed-router
 
-Path-typed router builder for [Hono](https://hono.dev) with composable middleware contexts and per-route policy hooks. Built on top of [`@hono/zod-openapi`](https://github.com/honojs/middleware/tree/main/packages/zod-openapi).
+This library is a path-typed router builder for [Hono](https://hono.dev). It has composable middleware contexts and route middleware factories. It uses [`@hono/zod-openapi`](https://github.com/honojs/middleware/tree/main/packages/zod-openapi).
 
-- **Typed paths** — route paths flow through the type system; child routes inherit the parent's path *and* its accumulated context variables.
-- **Composable contexts** — attach middleware via `.middleware<Vars>(...)` and the new variables become available to every route under that context, with type-level guards against redeclaration.
-- **Per-route policy hook** — register a `routeMiddleware` factory once on the router; it runs against every declared route with full access to the resolved `RouteConfig`. Drop-in spot for scope checks, audit logging, rate limits, anything cross-cutting.
-- **OpenAPI built-in** — every route is declared via `createRoute`; the resulting app has full OpenAPI metadata.
+- Typed paths: context paths go through the type system. A child context inherits the path of its parent _and_ the context variables that the parent accumulated. Each route gets the params of its path, typed and validated.
+- Composable contexts: you attach middleware with `.middleware(...)`. The new variables are then available to every route under that context. A type-level guard rejects a middleware that sets an existing variable again.
+- Route middleware factories: you register a route middleware factory one time on the router maker, in its `routeMiddleware` option. The router maker calls it for each declared route, with the resolved `RouteConfig` and the path of the route. It returns the middleware for that route, or `undefined` if the route needs none. Use it for scope checks, audit logs, rate limits, and other work that applies to many routes.
+- OpenAPI built-in: you declare every route with `defineRoute`, which calls `createRoute` of `@hono/zod-openapi`. As a result, the app has full OpenAPI metadata.
 
 ## Install
 
@@ -13,308 +13,233 @@ Path-typed router builder for [Hono](https://hono.dev) with composable middlewar
 npm i hono-typed-router hono @hono/zod-openapi zod
 ```
 
-Peer deps: `hono ^4.12`, `@hono/zod-openapi ^1.1`, `zod ^4`.
+Peer dependencies: `hono ^4.12.4`, `@hono/zod-openapi ^1.6.2`, `zod ^4.1`.
+
+Zod 4.0 is not supported. When `defineRoute` adds the path params to a params schema with refinements, zod 4.0 removes the refinements.
+
+Versions of `@hono/zod-openapi` before 1.6.2 make type-checking much slower for routers with a unique `Variables` type. See [Scaling](./docs/usage.md#scaling).
+
+TypeScript 7: if your `tsconfig.json` sets an explicit `lib`, also set `"types": ["node"]`, or add a DOM lib. TypeScript 7 no longer loads `@types/*` automatically. Without these types, the `Response` type of hono resolves to `any`. Then wrong response statuses or bodies are not compile errors. No error tells you that this occurred.
 
 ## Quick start
 
 ```ts
-import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   createRouter,
-  defineRootRoute,
-  defineChildRoute,
-  makeHonoResponse,
+  defineChildContext,
+  defineRootContext,
+  jsonResponse,
+  mountRouter,
 } from 'hono-typed-router';
 
-const okResponse = makeHonoResponse(z.object({ ok: z.boolean() }), 'OK');
+const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
-// 1. Define the root context — base path + global middlewares.
-const rootRoute = defineRootRoute('/api', []);
+const apiContext = defineRootContext('/api');
+const thingsContext = defineChildContext(apiContext, '/things');
 
-// 2. Build a router factory. Hooks attached here apply to every router built from it.
 const makeRouter = createRouter();
 
-// 3. Declare a child context. The path is concatenated at the type level.
-const thingsRoute = defineChildRoute<typeof rootRoute>()('/things');
-
-// 4. Build the router. `route()` declares + returns a RouteConfig; `router.openapi()`
-//    registers the handler.
-const thingsRouter = makeRouter(thingsRoute, ({ router, route }) => {
-  const list = route('get', { responses: { 200: okResponse } });
-  router.openapi(list, (c) => c.json({ ok: true }));
-  return router;
+const thingsRouter = makeRouter(thingsContext, ({ app, defineRoute }) => {
+  const listThingsRoute = defineRoute('get', { responses: { 200: okResponse } });
+  return app.openapi(listThingsRoute, (c) => c.json({ ok: true }, 200));
 });
 
-// 5. Mount children under the root and expose the final Hono app.
-const app = makeRouter(rootRoute, ({ router }) => router, [thingsRouter])();
-// GET /api/things -> { ok: true }
+const app = mountRouter(apiContext, [thingsRouter]);
 ```
 
-## Concepts
+`GET /api/things` returns `{ ok: true }`. The path of `thingsContext` is `/api/things`, in the type and at runtime. The root context declares no routes of its own, so `mountRouter` builds the app from its children.
 
-### `defineRootRoute(path, middlewares)`
+Return the chain of `.openapi()` calls from the callback of `makeRouter`, for example `app.openapi(a, ha).openapi(b, hb)`. Each `.openapi()` call returns the app with the new route in its type. The RPC client of Hono (`hc`, `testClient`) reads the routes from this type.
 
-Creates the root `RouteContext`. The `path` becomes the base path of any router built from this context, and the `middlewares` array runs on every request that hits routers under it.
-
-### `defineChildRoute<typeof parent>()(path)`
-
-Creates a child `RouteContext`. The child's path type is `${ParentPath}${ChildPath}`; its variables are inherited from the parent. Children are mounted on the parent in `makeRouter(parent, factory, [child])`.
-
-### `.middleware<NewVars>(handler)`
-
-Adds a middleware to the context and surfaces any new variables it sets on `c.var` to subsequent middleware and route handlers. Redeclaring an existing variable is a type error.
-
-```ts
-type SessionVar = { session: { userId: string } };
-
-const authed = defineRootRoute('/api', []).middleware<SessionVar>(async (c, next) => {
-  c.set('session', await loadSession(c));
-  await next();
-});
-
-const meRoute = defineChildRoute<typeof authed>()('/me');
-//  routes built from meRoute see `c.var.session` typed.
-```
-
-### `createRouter({ routeMiddleware? })`
-
-Returns a `makeRouter`. Optional `routeMiddleware` is a factory (or array of factories) of the form `(route: RouteConfig) => MiddlewareHandler`. Each factory is invoked **once at route declaration** with the resolved `RouteConfig`; the returned middleware is attached to the route's exact method + path.
-
-```ts
-const makeRouter = createRouter({
-  routeMiddleware: [
-    (route) => async (c, next) => {
-      console.log('hit', route.method, route.path);
-      await next();
-    },
-  ],
-});
-```
-
-Use array form to compose multiple concerns (scope check + request log + audit). Each middleware can call `next()` to continue or return a `Response` to short-circuit, exactly like a regular Hono middleware.
-
-#### `base` — shared RouteConfig fragment
-
-A partial `RouteConfig` deep-merged into every route declared by this router. Per-route values win on key conflicts; arrays (e.g. `security`, `tags`) are concatenated and structurally deduplicated; **two zod schemas at the same position are unioned** (`base.or(route)`) so a per-route `422` schema is combined with the base `422` schema rather than replacing it. The merged shape is reflected in the static type returned by `route()`, so handlers see the combined `responses`/`request` schema (with `ZodUnion<[base, route]>` at colliding schema slots).
-
-```ts
-const unauthorized = makeHonoResponse(z.object({ error: z.string() }), 'Unauthorized');
-
-const makeRouter = createRouter({
-  base: { responses: { 401: unauthorized } },
-});
-
-makeRouter(rootRoute, ({ router, route }) => {
-  const list = route('get', { responses: { 200: okResponse } });
-  // `list.responses` is typed with both `200` and `401`.
-  router.openapi(list, (c) => c.json({ ok: true }));
-  return router;
-});
-```
-
-#### `transformRoute` — runtime-only config transformer
-
-A hook of the form `(config: RouteConfig) => RouteConfig`. It runs immediately after the resolved `RouteConfig` is produced (and after any `base` merge), and *before* `routeMiddleware` factories see it. The static type of the returned config is unchanged — this is purely a runtime escape hatch for cross-cutting mutations (auto-tagging, injecting metadata, normalizing security entries, etc.).
-
-```ts
-const makeRouter = createRouter({
-  transformRoute: (route) => ({
-    ...route,
-    tags: [...(route.tags ?? []), `${route.method}:${route.path}`],
-  }),
-});
-```
-
-### `route(method, config)`
-
-Inside a router factory, `route()` builds and returns a `createRoute()` config with its path locked to the context's path. The returned config feeds straight into `router.openapi(config, handler)`.
-
-## Scope-check helper
-
-A common use of `routeMiddleware` is enforcing OAuth-style scopes declared on a route's `security`. Use the sub-entry helper:
-
-```ts
-import { createRouter } from 'hono-typed-router';
-import { createScopeMiddleware } from 'hono-typed-router/scopes';
-
-const makeRouter = createRouter({
-  routeMiddleware: createScopeMiddleware({
-    resolve: (c) => c.var.session.scopes,
-    // optional: customize the 403 body
-    onForbidden: (missing) => ({ code: 'FORBIDDEN', missing }),
-  }),
-});
-```
-
-Behavior:
-
-- Extracts required scopes from every entry in `route.security`, flattening across schemes and deduplicating.
-- If `route.security` is absent or empty, the middleware is a no-op.
-- If any required scope is missing from `resolve(c)`, returns **403** with the configured body.
-
-## Helpers
-
-These mirror the shape `@hono/zod-openapi` expects:
-
-```ts
-import {
-  makeHonoResponse,
-  makeHonoJsonBody,
-  makeHonoJsonRequest,
-  makeHonoNoContentResponse,
-} from 'hono-typed-router';
-
-const route = createRoute({
-  method: 'post',
-  path: '/things',
-  request: makeHonoJsonRequest(CreateBody, 'Create a thing'),
-  responses: {
-    200: makeHonoResponse(Thing, 'The created thing'),
-    204: makeHonoNoContentResponse('Deleted'),
-  },
-});
-```
-
-## Type-safe error handling
-
-`handler(c, fn)` wraps a route handler body with a destructurable view over the
-request's validated inputs and an opt-in `.errors([...])` step. Each validation
-target (`param`, `query`, `json`, ...) is read from `c.req.valid` lazily and
-cached, so untouched targets are never read and touched ones are read once.
-
-```ts
-import { handler, on, rethrow } from 'hono-typed-router';
-
-router.openapi(getThing, (c) =>
-  handler(c, async ({ param: { id } }) => c.json(await findOrFail(id), 200))
-    .errors([
-      on(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Not found' }, 404)),
-    ]),
-);
-```
-
-- `on(ErrorClass, (err, c) => response)` declares an **error arm**: match errors
-  that are `instanceof ErrorClass`, then produce a response. Arms are tried in
-  order; return `rethrow()` from an arm to defer to the next one (or, if none
-  matches, to rethrow the original error).
-- `.errors([...])` runs the body under the arms and **widens the result type with
-  each arm's response**. Because those responses flow into the value returned to
-  `router.openapi(...)`, wiring an arm that emits a status the route did not
-  declare in `responses` is a **compile error** — the OpenAPI contract and the
-  runtime handler cannot drift apart.
-- Awaiting the invocation without `.errors([...])` runs the body directly (the
-  body executes at most once either way).
-
-`handleErrors(body, arms, c)` is the same dispatch without the input proxy, for
-when you only need the error handling. Arms are reusable — factor common ones
-(`recordNotFoundArm`, `uniqueViolationArm`, ...) into helpers that call `on`.
-
-## Extending the `define[x]` context
-
-`extendRouteContext` adds custom, type-safe builder methods to `defineRootRoute`
-and `defineChildRoute` — generalizing the "load `:id` once, expose it on `c.var`"
-pattern into a first-class method. Each method threads the route's path and
-accumulated vars, and the augmentation is re-applied automatically through
-`.middleware()` and through the methods' own return values, so the builders are
-never lost mid-chain.
-
-Describe the extended context as a self-referential interface extending
-`RouteContextBase`, pair it with a one-line `RouteContextKind`, then pass the kind
-as the type argument and the runtime builders as the argument:
-
-```ts
-import { extendRouteContext } from 'hono-typed-router';
-import type {
-  ReaugmentContext,
-  RouteContextBase,
-  RouteContextKind,
-} from 'hono-typed-router';
-import type { MiddlewareHandler } from 'hono';
-import type { ParamKeys } from 'hono/types';
-
-interface Ctx<TPath extends string, TVars extends object>
-  extends RouteContextBase<CtxKind, TPath, TVars> {
-  bindRepository: <TKey extends string, TRepo>(
-    key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
-    param: ParamKeys<TPath>,
-    repository: () => TRepo,
-  ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: RelationsFor<TRepo> }>;
-}
-interface CtxKind extends RouteContextKind {
-  type: Ctx<this['path'] & string, this['vars'] & object>;
-}
-
-const { defineRootRoute, defineChildRoute } = extendRouteContext<CtxKind>({
-  bindRepository: (ctx) => (key, param, repository) => {
-    // The handler sets a var the loose builder context can't name; type it as a
-    // plain MiddlewareHandler and cast when handing it to ctx.middleware().
-    const mw: MiddlewareHandler = async (c, next) => {
-      c.set(key, relationsFor(repository(), c.req.param(param)));
-      await next();
-    };
-    return ctx.middleware(mw as never);
-  },
-});
-
-// `orgRoute.vars.organization` is typed; `bindRepository` and `.middleware()`
-// remain available for further chaining.
-const orgRoute = defineChildRoute<typeof rootRoute>()('/organizations/:organizationId')
-  .bindRepository('organization', 'organizationId', () => organizationsRepository);
-```
-
-The `key` guard rejects redeclaring an existing var, and `param` is constrained to
-the route's path parameters — both enforced at the type level.
-
-## Recipes
-
-### Binding a repository to a path parameter
-
-For a one-off (without `extendRouteContext`), the pattern is a thin wrapper around
-`.middleware`:
-
-```ts
-import type { RouteContext } from 'hono-typed-router';
-import type { ParamKeys } from 'hono/types';
-
-const bindOrganization = <P extends string, V extends object>(
-  ctx: RouteContext<P, V>,
-  param: ParamKeys<P>,
-) =>
-  ctx.middleware<{ organization: Organization }>(async (c, next) => {
-    const id = c.req.param(param as string);
-    const organization = await organizationsRepository.findById(id);
-    if (!organization) return c.json({ error: 'NOT_FOUND' }, 404);
-    c.set('organization', organization);
-    await next();
-  });
-
-const orgRoute = bindOrganization(
-  defineChildRoute<typeof rootRoute>()('/organizations/:organizationId'),
-  'organizationId',
-);
-```
-
-### Multiple `routeMiddleware` hooks
-
-```ts
-const makeRouter = createRouter({
-  routeMiddleware: [
-    createScopeMiddleware({ resolve: (c) => c.var.session.scopes }),
-    (route) => async (c, next) => {
-      const start = Date.now();
-      await next();
-      logger.info({ method: route.method, path: route.path, ms: Date.now() - start });
-    },
-  ],
-});
-```
+If the callback calls `app.openapi()` in separate statements and then returns `app`, the app type has no routes. Without children, this callback is a compile error: `The callback returns an app with no typed routes. Return the .openapi() chain, or return nothing.` With children, `({ app }) => app` is correct, and the check does not run. A callback that returns nothing compiles, but the app type then has no routes of the callback. The runtime is the same for all these forms.
 
 ## Documentation
 
-- [`docs/usage.md`](./docs/usage.md) — copy-pastable examples: CRUD resources, nested children, serving, OpenAPI UI, opt-outs, testing.
-- [`docs/api.md`](./docs/api.md) — full signature reference.
-- [`docs/design.md`](./docs/design.md) — rationale and deliberate omissions.
+- [`docs/usage.md`](./docs/usage.md): the complete example, the file-based project layout, and examples to copy. It covers CRUD resources, nested children, serving, the OpenAPI UI, error handling, testing, observability, scaling, and migration from 0.x.
+- [`docs/api.md`](./docs/api.md): the signature and the rules of each export.
+- [`docs/design.md`](./docs/design.md): the reasons for the design, and the deliberate omissions.
+- [`CHANGELOG.md`](./CHANGELOG.md): the list of changes, with the migration notes of each breaking change.
+
+## Concepts
+
+This library uses seven words. Each word has one meaning.
+
+- A context is a path and the typed vars that its middlewares set. `defineRootContext` and `defineChildContext` make contexts. A context is not the Hono `Context`, the `c` of a handler.
+- A route is one HTTP method on the path of a context. `defineRoute` makes the route config. `app.openapi` adds the handler of the route.
+- A middleware is a Hono handler `(c, next)`. It runs for each request.
+- A route middleware factory is a function `(route, meta) => middleware`. The router maker calls it one time for each route, at declaration. It gets the route config and returns the middleware for that route, or `undefined` if the route needs no middleware. `createScopeMiddleware` makes one.
+- The router maker is the function that `createRouter` returns. Its options apply to all the routers that it makes. The examples call it `makeRouter`.
+- A router is the function that `makeRouter` returns. You can give it to a parent router as a child. You can also call it to get the app.
+- An app is the Hono app (an `OpenAPIHono`) that a router or `mountRouter` returns. The callback of `makeRouter` gets this app as `app`. You serve the app, or you give it to `testClient`.
+
+The [API reference](./docs/api.md) gives the rules of each function: [`defineRootContext`](./docs/api.md#definerootcontextpath-middlewares), [`defineChildContext`](./docs/api.md#definechildcontextparent-path--definechildcontexttypeof-parentpath), [`.middleware()` and `.bind()`](./docs/api.md#routecontexttpath-tvars-tbindings), [`createRouter`](./docs/api.md#createrouteroptions), [`makeRouter` and `defineRoute`](./docs/api.md#makeroutercontext-callback-children), and [`mountRouter`](./docs/api.md#mountroutercontext-children).
+
+### Why `defineRoute` is inside the callback
+
+The full path of a router is known only when the router runs under its parent. `defineRoute` needs this path for the path params, for `meta.path`, for `transformRoute`, and for the route middleware factories. For this reason, the callback of `makeRouter` gives `defineRoute` to you. A `createRoute` config has none of these features. Only a router maker without options accepts a `createRoute` config. The API reference section [`makeRouter`](./docs/api.md#makeroutercontext-callback-children) gives all the rules of `defineRoute`.
+
+## Which middleware to use
+
+There are five ways to add middleware. For one request, the first four run in this order:
+
+1. The array of `defineRootContext(path, [a, b])`. These middlewares run for every request under the context, in array order.
+2. The `.middleware(a).middleware<B>(b)` chain, in chain order. Each call adds typed vars. The middlewares and handlers after it can read these vars.
+3. The middlewares of the route middleware factories, `routeMiddleware: [x, y]` of `createRouter`, in array order. Their middlewares run only for the registered route.
+4. The `middleware` key in the config of the route: `defineRoute('get', { middleware: m, ... })`. This is the native key of `@hono/zod-openapi`. Its middlewares run only for that route.
+5. The outer app: `new OpenAPIHono().use(...).route('/', app)`. Its middlewares run before step 1.
+
+Then the validators of the route run, and then the handler.
+
+| Way                        | Reads vars of earlier steps?             | Sets typed vars?                         | Scope                                       | Runs  |
+| -------------------------- | ---------------------------------------- | ---------------------------------------- | ------------------------------------------- | ----- |
+| Outer app, `server.use()`  | No                                       | No                                       | Every request of the server, also 404s      | First |
+| `defineRootContext` array  | Only a `ContextEnv` middleware           | Yes, each typed middleware adds its vars | Every route under the root context          | 2nd   |
+| `.middleware()` chain      | Yes                                      | Yes                                      | Every route under the context               | 3rd   |
+| Route middleware factories | Yes, but TypeScript does not check them. | No                                       | Each declared route. Gets the route config. | 4th   |
+| Route `middleware` key     | Yes, but TypeScript does not check them. | Yes, for the handler of that route       | One route                                   | 5th   |
+
+Use these rules:
+
+- If a middleware sets vars that later code reads, add it with `.middleware()`.
+- If a middleware neither reads nor sets vars, for example for timing or headers, put it in the `defineRootContext` array.
+- If a middleware needs the config of the route, for example its `security` scopes, use a route middleware factory.
+- If only one route needs a middleware, use the `middleware` key of that route.
+- If a middleware must also run for the OpenAPI document or for unknown paths, use the outer app. Examples are CORS and a logger.
+
+Give the middleware that each route middleware factory returns a function name, for example `rateLimit`. Then `showRoutes(app, { verbose: true })` from `hono/dev` shows this name.
+
+This example uses the first four ways:
+
+```ts
+import { createMiddleware } from 'hono/factory';
+import { z } from 'zod';
+import { createRouter, defineRootContext, jsonResponse } from 'hono-typed-router';
+
+const calls: string[] = [];
+
+const timing = createMiddleware(async function timing(c, next) {
+  calls.push('timing');
+  const start = Date.now();
+  await next();
+  c.header('Server-Timing', `total;dur=${Date.now() - start}`);
+});
+const noStore = createMiddleware(async function noStore(c, next) {
+  calls.push('noStore');
+  await next();
+  c.header('Cache-Control', 'no-store');
+});
+
+interface RequestIdVars {
+  requestId: string;
+}
+interface LogVars {
+  log: (message: string) => void;
+}
+const apiContext = defineRootContext('/api', [timing, noStore])
+  .middleware<RequestIdVars>(async function setRequestId(c, next) {
+    calls.push('setRequestId');
+    c.set('requestId', c.req.header('x-request-id') ?? 'none');
+    await next();
+  })
+  .middleware<LogVars>(async function setLog(c, next) {
+    calls.push('setLog');
+    c.set('log', (message) => console.info(`[${c.var.requestId}] ${message}`));
+    await next();
+  });
+
+const makeRouter = createRouter({
+  routeMiddleware: [
+    (route) =>
+      async function audit(_c, next) {
+        calls.push(`audit:${route.method}`);
+        await next();
+      },
+    () =>
+      async function countRequest(_c, next) {
+        calls.push('countRequest');
+        await next();
+      },
+  ],
+});
+
+interface StartVars {
+  startedAt: number;
+}
+const markStart = createMiddleware<{ Variables: StartVars }>(async function markStart(c, next) {
+  calls.push('markStart');
+  c.set('startedAt', Date.now());
+  await next();
+});
+
+const apiRouter = makeRouter(apiContext, ({ app, defineRoute }) => {
+  const searchRoute = defineRoute('get', {
+    middleware: markStart,
+    request: { query: z.object({ q: z.string() }) },
+    responses: { 200: jsonResponse(z.object({ q: z.string() }), 'OK') },
+  });
+
+  return app.openapi(searchRoute, (c) => {
+    calls.push('handler');
+    const { q } = c.req.valid('query');
+    c.var.log(`search ${q} after ${Date.now() - c.var.startedAt} ms`);
+    return c.json({ q }, 200);
+  });
+});
+
+const app = apiRouter();
+await app.request('/api?q=hono');
+```
+
+After the request, `calls` is `['timing', 'noStore', 'setRequestId', 'setLog', 'audit:get', 'countRequest', 'markStart', 'handler']`. If a request has no `q`, the validator returns 400 after the seven middlewares, and the handler does not run.
+
+The usage guide shows [the outer app](./docs/usage.md#composing-with-regular-hono-middleware), [route middleware factories](./docs/usage.md#middleware-for-every-route-with-route-middleware-factories), and [the `middleware` key of a route](./docs/usage.md#middleware-for-a-single-route). The API reference gives the type rules of [the root array](./docs/api.md#definerootcontextpath-middlewares), of [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings), and of [`routeDefaults.middleware`](./docs/api.md#createrouteroptions).
+
+## Observability
+
+The library gives you three things for logs, metrics, and traces. First, each route middleware factory gets `meta.path`, the full declared path of the route, for example `/api/things/:id`. This path is the same for all requests to the route, so it is a stable label for a log line or a metric. Second, give each middleware a function name. Then `showRoutes` and `inspectRoutes` of `hono/dev` and stack traces show it. Third, an error that an error arm handles becomes a response, so your error reporter does not see it. An error that no arm handles goes to `app.onError` of Hono, where your error reporter gets it.
+
+To report the declared route to OpenTelemetry, add `@hono/otel` 1.2.0 or later to the outer app, before the routes:
+
+<!-- doc-check: skip -->
+
+```ts
+import { httpInstrumentationMiddleware } from '@hono/otel';
+import { OpenAPIHono } from '@hono/zod-openapi';
+import type { Context } from 'hono';
+import { matchedRoutes, routePath } from 'hono/route';
+
+const route = (c: Context) => matchedRoutes(c).find((r) => r.method !== 'ALL')?.path;
+
+const server = new OpenAPIHono();
+server.use(
+  httpInstrumentationMiddleware({
+    getRoute: route,
+    spanNameFactory: (c) => `${c.req.method} ${route(c) ?? routePath(c)}`,
+  }),
+);
+server.route('/', mountRouter(apiContext, [thingsRouter]));
+```
+
+A context middleware is registered on the whole subtree, so without `getRoute`, a 401 from it gives the span name `GET /api/things/*` and not `GET /api/things/:id`.
+
+Each backend that receives OTLP gets these spans through the OTLP exporter of the OpenTelemetry SDK. Examples are Datadog, Grafana Tempo, Honeycomb, New Relic, and Jaeger. The usage guide section [Observability](./docs/usage.md#observability) shows the SDK setup, per-route logs, the configuration for Datadog and Sentry, and error reports.
+
+## Mistakes the compiler does not catch
+
+These mistakes compile, but the app does not do what you expect. Each line links to the full rule.
+
+- With TypeScript 7 and an explicit `lib`, you must also set `"types": ["node"]`. If not, the `Response` type is `any`, and wrong responses compile. See [Install](#install).
+- `createScopeMiddleware` returns a route middleware factory, not a middleware. Give it to `createRouter({ routeMiddleware })`, not to `.middleware()`. See [Scope checks](./docs/usage.md#scope-checks-with-createscopemiddleware).
+- The same reusable middleware applied two times, as in `apiContext.middleware(requireSession)`, adds no vars and runs two times. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings).
+- A route `middleware` that is a single handler replaces a `routeDefaults.middleware` list. The default middlewares then do not run. See [`routeDefaults`](./docs/api.md#createrouteroptions).
+- A `transformRoute` hook that does not spread `config` removes the keys of the route, also its `middleware`. See [`transformRoute`](./docs/api.md#createrouteroptions).
+- On TypeScript 7, an inline arrow in a root array with typed middlewares gets `c` as `Context<any>`. See [`defineRootContext`](./docs/api.md#definerootcontextpath-middlewares).
+- A sibling router mounted after a bound context, under the same param segment, also runs the loader of `.bind()`. See [`makeRouter`](./docs/api.md#makeroutercontext-callback-children).
+- A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars of the context `any`. See [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings).
+- A curried child router mounted under the wrong parent router serves its routes at the wrong URL, without an error. See [`defineChildContext`](./docs/api.md#definechildcontextparent-path--definechildcontexttypeof-parentpath).
+
+The library catches these mistakes: [a `{param}` context path](./docs/api.md#definerootcontextpath-middlewares), [two routes with one method and path](./docs/api.md#makeroutercontext-callback-children), [a param child before a literal sibling](./docs/api.md#makeroutercontext-callback-children), [a callback that returns an untyped app](#quick-start), and [a children array variable](./docs/api.md#makeroutercontext-callback-children).
 
 ## License
 

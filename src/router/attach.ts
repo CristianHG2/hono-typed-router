@@ -1,0 +1,175 @@
+import type { OpenAPIHono, RouteConfig } from '@hono/zod-openapi';
+import type { MiddlewareHandler } from 'hono';
+import type { RouterCaller } from './mount-guard';
+import { toHonoPath } from './path-params';
+import { honoJoin } from './route-match';
+
+type DeclaredRoute = {
+  readonly route: RouteConfig;
+  readonly owner: OpenAPIHono;
+  readonly mws: readonly MiddlewareHandler[];
+  attached: boolean;
+  registered: boolean;
+  /** `false` for a config that did not come from the `defineRoute` of `owner`. */
+  readonly declared: boolean;
+};
+
+const DECLARED = new WeakMap<object, DeclaredRoute>();
+
+const BY_ROUTER = new WeakMap<OpenAPIHono, DeclaredRoute[]>();
+
+export function recordRoute(
+  route: RouteConfig,
+  owner: OpenAPIHono,
+  mws: readonly MiddlewareHandler[],
+) {
+  const entry: DeclaredRoute = {
+    route,
+    owner,
+    mws,
+    attached: false,
+    registered: false,
+    declared: true,
+  };
+
+  DECLARED.set(route, entry);
+  addEntry(entry);
+}
+
+function addEntry(entry: DeclaredRoute) {
+  const list = BY_ROUTER.get(entry.owner);
+
+  if (list === undefined) {
+    BY_ROUTER.set(entry.owner, [entry]);
+  } else {
+    list.push(entry);
+  }
+}
+
+function isRecorded(app: OpenAPIHono, route: RouteConfig): boolean {
+  return BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
+}
+
+export type RegisteredRoute = {
+  readonly route: RouteConfig;
+  /** `true` when the `defineRoute` of the router returned the config. */
+  readonly declared: boolean;
+};
+
+/**
+ * The route configs that `router.openapi` registered, each one time. Limit: a route on
+ * `app.basePath(...)` or a raw `app.get()` is not in the list.
+ */
+export function registeredRoutes(router: OpenAPIHono): RegisteredRoute[] {
+  return (BY_ROUTER.get(router) ?? [])
+    .filter((entry) => entry.registered)
+    .map(({ route, declared }) => ({ route, declared }));
+}
+
+export function assertRoutesAttached(router: OpenAPIHono, fullPath: string, caller: RouterCaller) {
+  const missed = BY_ROUTER.get(router)?.find((entry) => !entry.attached && entry.mws.length > 0);
+
+  if (missed === undefined) {
+    return;
+  }
+
+  throw new TypeError(
+    `hono-typed-router: ${caller}: the ${describeRoute(fullPath, missed.route)} has route middlewares that were not attached, because the callback returned a different app. Return the app that the callback received, or register the routes on it.`,
+  );
+}
+
+// Not the generic signature of `openapi`: a comparison with it costs about 146,000 type
+// instantiations in this file.
+type OpenapiFn = (...args: never[]) => object;
+
+/**
+ * For an app without `createRouter` options. It records each config for the duplicate check,
+ * and throws for a config with route middlewares from another app.
+ */
+export function attachOnOpenapi(app: OpenAPIHono) {
+  wrapOpenapi(app, (route) => {
+    const entry = DECLARED.get(route);
+
+    if (entry === undefined || (entry.owner !== app && entry.mws.length === 0)) {
+      if (isRecorded(app, route)) {
+        return;
+      }
+
+      addEntry({
+        route,
+        owner: app,
+        mws: [],
+        attached: true,
+        registered: true,
+        declared: false,
+      });
+    } else {
+      attach(app, route, entry);
+    }
+  });
+}
+
+/** As {@link attachOnOpenapi}, but each config must come from the `defineRoute` of `app`. */
+export function guardOpenapi(app: OpenAPIHono, fullPath: string, options: readonly string[]) {
+  wrapOpenapi(app, (route) => {
+    const entry = DECLARED.get(route);
+
+    if (entry === undefined) {
+      const named =
+        options.length === 1 ? `${options[0]} option does` : `${options.join(', ')} options do`;
+
+      throw new TypeError(
+        `hono-typed-router: openapi: the ${describeRoute(fullPath, route)} was not declared with the defineRoute() of this router, so its ${named} not apply. Declare it with defineRoute(method, config) inside this callback.`,
+      );
+    }
+
+    attach(app, route, entry);
+  });
+}
+
+function wrapOpenapi(app: OpenAPIHono, before: (route: RouteConfig) => void) {
+  // zod-openapi defines `openapi` as an arrow function, so a call without `this` works.
+  // `openapiRoutes` calls `this.openapi`, so it also goes through the wrapper.
+  const original: OpenapiFn = app.openapi;
+
+  Object.defineProperty(app, 'openapi', {
+    value: (route: RouteConfig, ...rest: never[]) => {
+      before(route);
+
+      // SAFETY: the arguments go to the original `openapi` without change.
+      return original(...([route, ...rest] as never[]));
+    },
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+}
+
+function attach(app: OpenAPIHono, route: RouteConfig, entry: DeclaredRoute) {
+  if (entry.owner !== app) {
+    throw new TypeError(
+      `hono-typed-router: openapi: the ${route.method.toUpperCase()} route was declared by the defineRoute() of another router. Its route middlewares were built for that router. Declare it with defineRoute(method, config) inside this callback.`,
+    );
+  }
+
+  entry.registered = true;
+
+  if (entry.attached || entry.mws.length === 0) {
+    return;
+  }
+
+  entry.attached = true;
+  // `on(METHOD, path)` and not `use(path)`: Hono serves HEAD through the GET handlers, so
+  // the middleware also runs for HEAD.
+  app.on(
+    route.method.toUpperCase(),
+    toHonoPath(route.path),
+    // SAFETY: `mws` is not empty. The tuple cast selects the `(method, path, ...handlers)`
+    // overload of `on`. A plain array spread selects the `(method, path[])` overload.
+    ...(entry.mws as [MiddlewareHandler, ...MiddlewareHandler[]]),
+  );
+}
+
+function describeRoute(fullPath: string, route: Partial<RouteConfig>): string {
+  return `${String(route.method ?? '').toUpperCase()} route at '${toHonoPath(honoJoin(fullPath, route.path ?? '/'))}'`;
+}
