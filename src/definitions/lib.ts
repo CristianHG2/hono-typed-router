@@ -8,23 +8,18 @@ import type { CheckRootArray, FoldBindings, FoldVars } from './root-array';
 import type { ChildRouteFn, DeferredChildContextFn, ParentContext, RouteContext } from './types';
 
 /**
- * Internal. `makeRouter` uses it to make sure that a value-form child mounts under its
- * parent context, or under a `.middleware()` descendant of that parent.
+ * Internal. `makeRouter` uses it to make sure that a value-form child mounts under its parent
+ * context, or under a `.middleware()` descendant of that parent.
  */
 export type RouteIdentity = {
   readonly id: symbol;
-  /**
-   * The ids of the `.middleware()` ancestors of this context, oldest first, and then `id`.
-   * Roots and children start a new lineage.
-   */
+  /** The ids of the `.middleware()` ancestors of this context, oldest first, and then `id`. */
   readonly lineage: readonly symbol[];
-  /** Absent on roots and curried children. */
   readonly parentId?: symbol;
-  /** For the mis-mount error message. */
   readonly parentPath?: string;
 };
 
-// An enumerable symbol key, so that an object spread (as in `extendRouteContext`) copies it.
+// A symbol key, so that an object spread (as in `extendRouteContext`) copies it, but
 // `Object.keys` and `JSON.stringify` do not show it.
 const IDENTITY: unique symbol = Symbol('hono-typed-router.identity');
 
@@ -78,11 +73,8 @@ function createRouteContext<TPath extends string, TVars extends object>(
 
 /**
  * The vars and the bindings come from the type arguments, or from the middlewares when they
- * all declare the same `Variables` and `Bindings`. This signature must stay first, so that
- * TypeScript tries it before the fold signature. One to three explicit type arguments
- * select it. A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars `any`.
- * With a `TBindings` type argument, each typed middleware must declare these `Bindings` (see
- * `MiddlewareFactory`). Add a middleware typed only with `Variables` with `.middleware()`.
+ * all declare the same `Variables` and `Bindings`. Keep this signature first, so that
+ * TypeScript tries it before the fold signature. One to three explicit type arguments select it.
  */
 export function defineRootContext<
   TPath extends string,
@@ -93,15 +85,9 @@ export function defineRootContext<
   middlewares?: MiddlewareHandler<RouterEnv<TVars, TBindings>>[],
 ): RouteContext<TPath, TVars, TBindings>;
 /**
- * Fold: the vars are the intersection of the `Variables` of the middlewares, and the
- * bindings are the intersection of their `Bindings`. Thus typed middlewares with different
- * vars can share the array. The two `_NoExplicitTypeArgs` parameters have no default, so one
- * to three explicit type arguments cannot select this signature. `CheckRootArray` rejects
- * conflicting var types and a non-tuple array of mixed middlewares.
- *
- * Limit: in an array of typed middlewares with different vars, an inline arrow gets no
- * contextual type. TypeScript 7 types `c` as `Context<any>`, and TypeScript 5.9 reports an
- * error. Write such a handler with `createMiddleware`, or add it with `.middleware()`.
+ * Fold: the vars and the bindings are the intersections of the `Variables` and the `Bindings`
+ * of the middlewares. The two `_NoExplicitTypeArgs` parameters have no default, so one to three
+ * explicit type arguments cannot select this signature. `docs/api.md` lists the limits.
  */
 export function defineRootContext<
   TPath extends string,
@@ -112,9 +98,7 @@ export function defineRootContext<
   path: TPath,
   middlewares?: readonly [...TMws] & CheckRootArray<TMws>,
 ): RouteContext<TPath, FoldVars<TMws>, FoldBindings<TMws>>;
-// One implementation for both signatures. Its signature is erased: the vars are a phantom,
-// so both signatures return the same runtime context. The array is copied, so a later change
-// to the array of the caller does not change the context.
+// The array is copied, so a later change to the array of the caller does not change the context.
 export function defineRootContext(
   path: string,
   middlewares: readonly MiddlewareHandler[] = [],
@@ -141,10 +125,9 @@ export function joinChildPath(parentPath: string, path: string): string {
 }
 
 /**
- * Value form: infers the path, vars and bindings of the parent from `parent`. The runtime
- * `path` is `parent.path` joined with `path`. A parent `'/'` adds no slash. The parent value
- * must exist at module load. If the parent module imports the router of the child (a
- * circular import), use the curried form.
+ * Value form: the child gets the path, the vars and the bindings of `parent`. The parent value
+ * must exist at module load. If the parent module imports the router of the child (a circular
+ * import), use the curried form.
  */
 export function defineChildContext<
   TPath extends string,
@@ -163,10 +146,9 @@ export function defineChildContext<TParentContext extends ParentContext>(): Defe
   TParentContext,
   ChildRouteFn<TParentContext>
 >;
-// One implementation for both forms. Its signature is erased. The curried form keeps the
-// runtime path relative, but its type is the full path. No code reads that runtime path
-// before the mount, and the mount applies the parent base path. Neither form copies the
-// parent middlewares, because the parent router runs them after the mount.
+// The curried form keeps the runtime path relative, but its type is the full path. No code
+// reads that runtime path before the mount, and the mount applies the parent base path. Neither
+// form copies the parent middlewares, because the parent router runs them after the mount.
 export function defineChildContext(
   ...args: [] | [ParentContext, string]
 ): RouteContext<string, object> | ((path: string) => RouteContext<string, object>) {

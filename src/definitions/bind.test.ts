@@ -23,7 +23,6 @@ const valueResponse = jsonResponse(z.object({ value: z.unknown() }), 'OK');
 
 const makeRouter = createRouter();
 
-/** A router with one GET route that returns the var `x` of the context. */
 function valueRouter(ctx: RouteContext<string, { x: unknown }>) {
   return makeRouter(ctx, ({ app, defineRoute }) => {
     app.openapi(defineRoute('get', { responses: { 200: valueResponse } }), (c) =>
@@ -32,7 +31,6 @@ function valueRouter(ctx: RouteContext<string, { x: unknown }>) {
   });
 }
 
-/** The lines that `run` writes with `console.log`. */
 function captureLog(run: () => void): string {
   const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
 

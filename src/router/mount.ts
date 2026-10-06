@@ -6,11 +6,8 @@ import type { CheckChildren, ChildRouter, ChildSchema, WithChildSchemas } from '
 
 /**
  * Makes the root app from a context and its children. It is the short form of
- * `makeRouter(context, ({ app }) => app, children)()`, with the same checks. Its errors name
- * `mountRouter`.
- *
- * It declares no routes, so it takes no `createRouter` options. Use `makeRouter` when the
- * root has its own routes. The result is an app, not a thunk, so it cannot be a child.
+ * `makeRouter(context, ({ app }) => app, children)()`, with the same checks. The result is an
+ * app, not a thunk, so it cannot be a child.
  */
 export function mountRouter<
   TPath extends string,

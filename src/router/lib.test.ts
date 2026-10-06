@@ -229,7 +229,6 @@ describe('createRouter', () => {
 
     expect(paths).toEqual(['/api/things', '/api/things/:id']);
 
-    // Without a parent, meta.path is the curried segment.
     seen.length = 0;
     thingsRouter();
     expect(seen).toEqual(['/things', '/things/:id']);
@@ -352,7 +351,6 @@ describe('createRouter', () => {
 
     expect(paths).toEqual(['/api/x']);
 
-    // A curried child at '/' adds nothing to the mount path, so meta.path is the parent path.
     seen.length = 0;
 
     const slashRouter = makeRouter(defineChildContext<typeof root>()('/'), ({ app, defineRoute }) =>
@@ -1102,7 +1100,6 @@ describe('mount guard', () => {
       /mounted under the context at '\/other'/,
     );
 
-    // Builders and `.middleware()` on an extended context extend the lineage.
     const tagged = root.tag().middleware(pass);
     expect(getRouteIdentity(tagged)?.lineage).toContain(rootId);
     expect(getRouteIdentity(tagged)?.lineage).toHaveLength(3);
@@ -1339,7 +1336,6 @@ describe('route middleware attaches at openapi', () => {
     // An app with an `any` schema passes the type check of the callback result.
     expect(makeRouter(things, () => new OpenAPIHono<any, any, any>())).not.toThrow();
 
-    // Every factory returned `undefined`: the route has no middlewares.
     const noMiddleware = createRouter({ routeMiddleware: () => undefined })(
       things,
       ({ app, defineRoute }) =>

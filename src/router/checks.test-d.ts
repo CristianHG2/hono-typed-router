@@ -6,8 +6,7 @@ import type { CheckChildren } from './children';
 import { createRouter } from './lib';
 import type { CheckPathParams } from './path-params';
 
-// These tests assert the exact text of the compile-time errors of the router. `lib.test-d.ts`
-// shows each error at a call site.
+// The exact text of the compile-time errors. `lib.test-d.ts` shows each error at a call site.
 
 const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
 
@@ -23,8 +22,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   >().toEqualTypeOf<"The path '/api/orgs/:orgId/things/:id{[0-9]+}' has no param named 'thingId'">();
 }
 
-// A children array variable with one typed element type tells you to pass the children inline
-// or as const.
+// A children array variable with one typed element type
 {
   const root = defineRootContext('/api', []);
   const things = defineChildContext(root, '/things');

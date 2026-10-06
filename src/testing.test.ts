@@ -97,7 +97,6 @@ function buildApp() {
 
   const app = mountRouter(root, [things]);
 
-  // The short form has the type of the long form.
   expectTypeOf(app).toEqualTypeOf(makeRouter(root, ({ router }) => router, [things])());
 
   return app;

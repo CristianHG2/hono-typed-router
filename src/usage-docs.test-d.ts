@@ -1,7 +1,5 @@
-// The docs/usage.md examples as type-level code. `test:types` compiles them, and nothing here runs.
-// `pnpm check:docs` finds each usage.md ```ts block here after normalization.
-// Setup and stubs go before each block, never inside it.
-// usage.md marks the blocks for external packages and runtime entry points as skipped.
+// The twin of each ```ts block in docs/usage.md (see AGENTS.md). Put setup and stubs before a
+// block, never inside it.
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
@@ -34,8 +32,7 @@ import type {
 } from './index';
 import { createScopeMiddleware } from './scopes';
 
-// Type-only references keep the import count under the lint limit. `cors` and `honoLogger`
-// are Hono middlewares. `ParamKeys` comes from `hono/types`.
+// Type-only references keep the import count under the lint limit.
 declare const cors: typeof import('hono/cors').cors;
 
 declare const honoLogger: typeof import('hono/logger').logger;
@@ -843,7 +840,6 @@ declare const logger: { info: (entry: LogEntry) => void };
     onForbidden: (missing, c) => ({ missing, userId: c.var.session.userId }),
   });
 
-  // A route middleware factory is not a middleware.
   // @ts-expect-error `createScopeMiddleware` returns a route middleware factory
   defineRootContext('/scoped').middleware(scopeMiddleware);
 }
@@ -1177,7 +1173,6 @@ declare class UniqueConstraintError extends Error {
 
   expectTypeOf(updateThingRouter).toBeFunction();
 
-  // Without `404` in `responses`, the handler is a compile error.
   makeRouter(thingByIdContext, ({ app, defineRoute }) => {
     const getThingRoute = defineRoute('get', {
       responses: {

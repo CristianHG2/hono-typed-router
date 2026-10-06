@@ -29,18 +29,8 @@ function buildProxy<I extends Input>(c: Context<any, any, I>): ValidatedProxy<I>
 
 /**
  * Runs a route handler body with a {@link ValidatedProxy} of the validated inputs of the
- * request. `c.req.valid` reads each target once, at the first access. With `arms`,
- * {@link handleErrors} handles a thrown `Error`, and the result type adds the response of
- * each arm. `router.openapi(...)` checks this type, so an arm with a response that the route
- * does not declare is a compile error.
- *
- * ```ts
- * router.openapi(route, (c) =>
- *   handle(c, async ({ param: { id } }) => c.json(await findOrFail(id), 200), [
- *     onError(RecordNotFoundError, (_err, ec) => ec.json({ message: 'Not found' }, 404)),
- *   ]),
- * );
- * ```
+ * request. With `arms`, {@link handleErrors} handles a thrown `Error`, and the result type adds
+ * the response of each arm. Thus `router.openapi(...)` rejects an arm with an undeclared status.
  */
 export function handle<I extends Input, R, const A extends ReadonlyArray<AnyArm> = readonly []>(
   c: Context<any, any, I>,
@@ -57,9 +47,6 @@ export function handle<I extends Input, R, const A extends ReadonlyArray<AnyArm>
 /**
  * @deprecated Use {@link handle}: `handle(c, fn, arms)` replaces
  * `handler(c, fn).errors(arms)`. Removed in 2.0.
- *
- * Returns a lazy thenable over `handle(c, fn)` with an optional `.errors([...])` step. The
- * body runs one time at most, also when you await it and call `.errors([...])`.
  */
 export function handler<I extends Input, TResponse>(
   c: Context<any, any, I>,
@@ -85,7 +72,7 @@ export function handler<I extends Input, TResponse>(
     finally(onFinally) {
       return settle().finally(onFinally);
     },
-    // Stack frames show `HandlerInvocation.then`, not `Promise.then`.
+    // Stack frames show `HandlerInvocation.then`, not `Object.then`.
     [Symbol.toStringTag]: 'HandlerInvocation',
     errors: <const TArms extends ReadonlyArray<AnyArm>>(arms: TArms) =>
       handleErrors(settle, arms, c),

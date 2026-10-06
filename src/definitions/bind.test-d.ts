@@ -83,14 +83,12 @@ const authed = defineRootContext('/api').middleware<{ session: Session }>(async 
   // @ts-expect-error 'session' is already a var of `authed`
   defineChildContext(authed, '/:id').bind('session', 'id', (id) => id);
 
-  // The key parameter of `.bind()` on a context that has `thing` is the error message.
   type KeyParam = Parameters<typeof ctx.bind<'thing', string>>[0];
 
   expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: thing. Use another var name, or read thing from the context.'>();
 }
 
-// The key must be one string literal, because `.bind()` sets one var. The union check does
-// not distribute, so a union gives one message.
+// The key must be one string literal, because `.bind()` sets one var.
 declare const stringKey: string;
 
 declare const unionKey: 'a' | 'b';
@@ -116,8 +114,7 @@ declare const unionKey: 'a' | 'b';
   expectTypeOf(bound.vars).toEqualTypeOf<{} & { a: string }>();
 }
 
-// An annotation on `c`, or an explicit third type argument, lets the loader read vars that the
-// context does not have. The key check uses the vars of the context.
+// An annotation on `c`, or a third type argument, lets the loader read vars of another context.
 {
   type OtherVars = { session: Session; other: number };
 
@@ -214,7 +211,6 @@ declare const unionKey: 'a' | 'b';
 }
 
 // A bound context is assignable to a context with fewer vars, and `makeRouter` accepts it.
-// Route handlers read the bound var.
 {
   const ctx = defineChildContext(authed, '/organizations/:organizationId').bind(
     'organization',
@@ -233,8 +229,7 @@ declare const unionKey: 'a' | 'b';
   });
 }
 
-// An extended context keeps its builders after `.bind()`, and `.bind()` after a builder
-// sees the vars of the builder.
+// An extended context keeps its builders after `.bind()`, and `.bind()` sees builder vars.
 interface Ctx<TPath extends string, TVars extends object> extends RouteContextBase<
   CtxKind,
   TPath,

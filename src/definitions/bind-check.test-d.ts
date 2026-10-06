@@ -25,8 +25,7 @@ const authed = defineRootContext('/api').middleware<Vars>(async (_c, next) => {
 
 const ctx = defineChildContext(authed, '/things/:id');
 
-// A loader that can return no value is an error: only `null`, `undefined`, `void`, `never`, or
-// a promise of one of these.
+// A loader that can return no value is an error.
 {
   // @ts-expect-error The loader returns no value (`void`)
   ctx.bind('x', 'id', () => {});
@@ -105,8 +104,7 @@ const ctx = defineChildContext(authed, '/things/:id');
   >();
 }
 
-// A loader whose return type is a type parameter is accepted. The check relies on this
-// wildcard behavior (see `BindLoadedKind`). A TypeScript upgrade that changes it fails here.
+// A loader whose return type is a type parameter is accepted (see `BindLoadedKind`).
 {
   function viaFind<T>(find: (id: string) => Promise<T | null>) {
     return ctx.bind('x', 'id', (id) => find(id));
@@ -134,7 +132,6 @@ const ctx = defineChildContext(authed, '/things/:id');
   expectTypeOf(viaUndefined(findThing).vars).toEqualTypeOf<Vars & { x: Thing }>();
   expectTypeOf(viaPlain((id) => id).vars).toEqualTypeOf<Vars & { x: string }>();
 
-  // Limit: the check does not run through a generic wrapper. A wrapper call with a loader that
-  // returns only `null` compiles.
+  // Limit: the check does not run through a generic wrapper, so this call compiles.
   viaPlain(() => null);
 }

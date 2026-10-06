@@ -1,4 +1,3 @@
-/** One route or middleware of an app, as `inspectRoutes` from `hono/dev` lists it. */
 export type RouteEntry = {
   /** The upper-case method, or `ALL` for `use()` and `all()`. */
   readonly method: string;
@@ -7,9 +6,8 @@ export type RouteEntry = {
 };
 
 /**
- * Joins two paths as the `mergePath` of Hono. A route path `'/'` keeps the base with its
- * trailing slash. Hono routes `'/things'` and `'/things/'` apart, so the keys keep the
- * difference.
+ * Joins two paths as the `mergePath` of Hono. A route path `'/'` keeps the trailing slash of
+ * the base, because Hono routes `'/things'` and `'/things/'` apart.
  */
 export function honoJoin(base: string, sub: string): string {
   const head = base.startsWith('/') ? base : `/${base}`;

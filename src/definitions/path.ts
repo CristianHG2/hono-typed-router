@@ -1,10 +1,8 @@
 /**
- * The parent path joined with the child segment by one `/`, as Hono joins them:
- * `'/'` + `'/things'` is `'/things'`, and `'/api'` + `'things'` is `'/api/things'`. A segment
- * `'/'` or `''` adds nothing: `'/api'` + `'/'` is `'/api'`. Under a root `''`, the segment
- * `'/'` gives `'/'`. Keep it the same as `joinChildPath`.
+ * The parent path joined with the child segment, as Hono joins them. Keep it the same as
+ * `joinChildPath`.
  *
- * @internal Exported for declaration emit.
+ * @internal
  */
 export type ChildPath<
   TParentPath extends string,
@@ -26,9 +24,8 @@ export type ChildPath<
 const OPENAPI_PARAM = /^\{([^/}]*)\}?/;
 
 /**
- * The path with each OpenAPI `{name}` segment written as `:name`, or `undefined` when no
- * segment starts with `{`. The braces are counted, so a `/` inside a Hono regex param
- * (`:id{a/{x}}`) does not start a segment.
+ * The braces are counted, so that a `/` inside a Hono regex param (`:id{a/{x}}`) does not start
+ * a segment.
  */
 function honoSyntax(path: string): string | undefined {
   let depth = 0;
@@ -68,9 +65,8 @@ function honoSyntax(path: string): string | undefined {
 }
 
 /**
- * Internal. Rejects the OpenAPI `{param}` syntax, because Hono mounts it literally and the
- * path returns 404. The check runs only at runtime, because a type check also rejects a
- * generic path parameter.
+ * Hono mounts an OpenAPI `{param}` literally, and the path returns 404. The check runs only at
+ * runtime, because a type check also rejects a generic path parameter.
  */
 export function assertHonoPath(fn: 'defineRootContext' | 'defineChildContext', path: string): void {
   const fixed = honoSyntax(path);

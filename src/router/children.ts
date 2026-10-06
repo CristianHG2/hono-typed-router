@@ -10,9 +10,8 @@ export type ChildRouter = () => OpenAPIHono<any, any, any>;
 /**
  * @internal
  *
- * The `Schema` of a child app. An empty or `any` schema gives `never`. The schema comes from
- * `OpenAPIHono`, not from the base `Hono`: a match on the base class compares each member
- * (about 9 times more types with 50 children).
+ * The match is on `OpenAPIHono`, not on the base `Hono`: a match on the base class compares
+ * each member (about 9 times more types with 50 children).
  */
 export type ChildSchema<TChild> = TChild extends () => OpenAPIHono<any, infer S extends Schema, any>
   ? 0 extends 1 & S
@@ -20,15 +19,13 @@ export type ChildSchema<TChild> = TChild extends () => OpenAPIHono<any, infer S 
     : NonEmptySchema<S>
   : never;
 
-/** Drops each empty (`{}`) member of the schema union. */
 type NonEmptySchema<S> = S extends unknown ? (keyof S extends never ? never : S) : never;
 
 /**
  * @internal
  *
- * Adds the schemas of the children to the app `Schema`, so `hc` and `testClient` see their
- * routes. The schema keys are already full paths. The schemas are intersected, not joined
- * in a union: with 500 children, a union makes `testClient(app)` fail with TS2589.
+ * The schema keys are already full paths. The schemas are intersected, not joined in a union:
+ * with 500 children, a union makes `testClient(app)` fail with TS2589.
  */
 export type WithChildSchemas<TApp, TChildSchemas extends Schema> = [TChildSchemas] extends [never]
   ? TApp
@@ -42,7 +39,7 @@ type UnionToIntersection<U> = (U extends unknown ? (value: U) => void : never) e
   ? I
   : never;
 
-// One member of a union, from the intersection of one function for each member.
+// TypeScript infers one member of a union from an intersection of one function for each member.
 type LastOf<T> =
   UnionToIntersection<T extends unknown ? (value: T) => void : never> extends (
     value: infer L,
@@ -57,13 +54,10 @@ type IsUnion<T> =
 /**
  * @internal
  *
- * An error message for a children array variable whose element type is one typed child.
- * TypeScript can reduce the element type of such an array to one child, and the app type
- * then loses the routes of the other children. A union element type and `ChildRouter[]` pass.
- *
- * Limit: an array with one child, or with children of one type (`routers.map(() => r)`),
- * also fails. Pass them inline or as `ChildRouter[]`. The check costs about 23,000
- * instantiations for a union of 50 children.
+ * TypeScript can reduce the element type of a children array variable to one child, and the
+ * app type then loses the routes of the other children. Limit: an array of children of one
+ * type (`routers.map(() => r)`) also fails. The check costs about 23,000 instantiations for a
+ * union of 50 children.
  */
 export type CheckChildren<TChildren extends readonly unknown[]> = number extends TChildren['length']
   ? true extends IsUnion<TChildren[number]>

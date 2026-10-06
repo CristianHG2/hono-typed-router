@@ -4,10 +4,12 @@
 // A block matches when its normalized text is a substring of the normalized mirror. The
 // normalization is the same on both sides:
 //   1. Remove comments (string- and template-aware). This also removes `@ts-expect-error`.
-//   2. Remove each statement that starts a line with `import`, `declare` or `expectTypeOf(`, up
-//      to its `;` at bracket depth 0 (or the `}` that closes a `declare class` body).
-//   3. Remove all whitespace.
-//   4. Remove a `,` before `)`, `]`, `}` or `>`. The formatter adds trailing commas when a
+//   2. Remove each statement that starts a line with `import`, `declare`, `expectTypeOf(` or
+//      `expectTypeOf<`, up to its `;` at bracket depth 0 (or the `}` that closes a `declare
+//      class` body).
+//   3. Remove the `export` and `export default` keywords.
+//   4. Remove all whitespace.
+//   5. Remove a `,` before `)`, `]`, `}` or `>`. The formatter adds trailing commas when a
 //      mirror block is one scope deeper and wraps differently.
 // The check skips a block when the nearest non-blank line above its fence is
 // `<!-- doc-check: skip -->`. A fence with the language `ts` or `typescript` is a ts block. An
@@ -28,7 +30,6 @@ const SKIP_MARKER = '<!-- doc-check: skip -->';
 
 const TS_LANGUAGES = new Set(['ts', 'typescript']);
 
-// The language of a fence line, such as `ts` for "```ts title", or `undefined` for a non-fence.
 const FENCE = /^(\s*)```(\S*)/u;
 
 const REMOVED_STATEMENT = /^(?:import[\s{]|import$|declare\s|expectTypeOf[(<])/u;
@@ -52,7 +53,6 @@ interface DocBlock {
 
 interface Extracted {
   blocks: DocBlock[];
-  /** The lines of the indented ts fences that are not marked skipped. */
   indented: number[];
 }
 
@@ -62,7 +62,6 @@ const CLOSERS = new Set([')', ']', '}']);
 
 const QUOTES = new Set(['"', "'", '`']);
 
-// The index after the string literal that opens at `start`.
 function skipString(text: string, start: number): number {
   const quote = text[start];
   let index = start + 1;
@@ -104,8 +103,7 @@ function stripComments(text: string): string {
   return out;
 }
 
-// The index after the statement that starts at `start`. A `declare class` has no `;`, so the
-// `}` that returns to depth 0 also ends a `declare` statement.
+// A `declare class` has no `;`, so the `}` that returns to depth 0 also ends a `declare` statement.
 function statementEnd(text: string, start: number): number {
   const endsAtBrace = text.startsWith('declare', start);
   let depth = 0;
@@ -196,7 +194,7 @@ function extractBlocks(markdown: string): Extracted {
         indented.push(index + 1);
       }
 
-      // Skip the body of a non-ts or indented fence, so that it is not read as prose.
+      // Open a skipped fence too, so that the lines inside it are not read as fences.
       open = { line: index + 1, code: '' };
       skipping = !ts || indent !== '' || marked;
     }

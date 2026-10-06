@@ -79,7 +79,7 @@ function mergeArrays(base: readonly unknown[], route: readonly unknown[]): unkno
   return out;
 }
 
-/** Internal. The runtime twin of `DeepMerge` in `./types`. Keep the two the same. */
+/** The runtime twin of `DeepMerge` in `./types`. Change the two together. */
 export function deepMerge(
   base: Record<string, unknown>,
   route: Record<string, unknown>,

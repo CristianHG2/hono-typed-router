@@ -1,7 +1,5 @@
-// The docs/api.md examples as type-level code. `test:types` compiles them, and nothing here runs.
-// `pnpm check:docs` finds each api.md ```ts block here after normalization.
-// Setup and stubs go before each block, never inside it.
-// api.md marks the signature-only blocks as skipped.
+// The twin of each ```ts block in docs/api.md (see AGENTS.md). Put setup and stubs before a
+// block, never inside it.
 import { createRoute, OpenAPIHono } from '@hono/zod-openapi';
 import { expectTypeOf } from 'expect-type';
 import type { MiddlewareHandler } from 'hono';
@@ -82,7 +80,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<keyof typeof loggedContext.vars>().toEqualTypeOf<'requestId' | 'log'>();
   expectTypeOf(loggedContext.vars.log).toEqualTypeOf<(message: string) => void>();
 
-  // One typed middleware gives its vars, untyped ones give `{}`.
   expectTypeOf(defineRootContext('/a', [timing, setRequestId]).vars).toEqualTypeOf<RequestIdVars>();
   expectTypeOf(defineRootContext('/a', [timing]).vars).toEqualTypeOf<{}>();
 
@@ -161,12 +158,10 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   apiContext.middleware<SessionVars>(requireSession);
 
-  // The second application adds no vars.
   const twice = apiContext.middleware(requireSession);
 
   expectTypeOf<keyof typeof twice.vars>().toEqualTypeOf<'session'>();
 
-  // `NoRedeclare` also rejects a redeclared var on an inline middleware.
   // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   apiContext.middleware<SessionVars>(async (_c, next) => {
     await next();
@@ -339,7 +334,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
       ),
   );
 
-  // A route `middleware` array literal stays a tuple. A `MiddlewareHandler[]` variable does not.
   createRouter()(defineRootContext('/mw'), ({ app, defineRoute }) => {
     const startOnly: MiddlewareHandler[] = [markStart];
 
@@ -408,7 +402,6 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   const plainChildren = [statsRouter, thingByIdRouter];
   // @ts-expect-error Pass children inline or as const: a children array variable has one element type, and the app type can lose the routes of some children
   makeRouter(thingsContext, () => {}, plainChildren);
-  // A one-element array variable is also an error.
   const oneChild = [statsRouter];
   // @ts-expect-error Pass children inline or as const
   makeRouter(thingsContext, () => {}, oneChild);

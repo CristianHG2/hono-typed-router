@@ -30,7 +30,7 @@ class SameTagAsCart extends Error {
   readonly _tag = 'CartNotFound' as const;
 }
 
-// A key comes from a literal `_tag`, else from a literal `name`. `Error.prototype.name` does not count.
+// A tag comes from a literal `_tag`, else from a literal `name`.
 {
   expectTypeOf<ErrorTag<typeof CartNotFound>>().toEqualTypeOf<'CartNotFound'>();
   expectTypeOf<ErrorTag<typeof Legacy>>().toEqualTypeOf<'Legacy'>();
@@ -60,8 +60,7 @@ class SameTagAsCart extends Error {
   );
 }
 
-// A key without a matching class is a compile error. The message names the key and the
-// listed tags.
+// A key without a matching class is a compile error.
 {
   matchErrors([CartNotFound], {
     CartNotFound: () => 'nf',
@@ -69,7 +68,6 @@ class SameTagAsCart extends Error {
     Nope: () => 'nope',
   });
 
-  // A misspelled tag: the error is on the misspelled key.
   matchErrors([CartNotFound, OutOfStock], {
     CartNotFound: () => 'nf',
     // @ts-expect-error "OutOfStok" is not the tag of a listed class. The tags are: CartNotFound, OutOfStock
@@ -103,8 +101,7 @@ class SameTagAsCart extends Error {
   >().toEqualTypeOf<'Error class at index 1 shares the tag "CartNotFound" with another class'>();
 }
 
-// `handle(c, fn, matchErrors(...))` gives the same type as the equal `onError` arms. A handler
-// that only rethrows adds nothing.
+// `handle(c, fn, matchErrors(...))` gives the same type as the equal `onError` arms.
 {
   const c = {} as Context;
 
@@ -130,7 +127,6 @@ class SameTagAsCart extends Error {
 
   expectTypeOf(viaMatch).toEqualTypeOf<typeof viaOnError>();
 
-  // A spread next to an `onError` arm keeps the responses of both arms.
   const spread = handle(c, body, [
     ...matchErrors([CartNotFound], {
       CartNotFound: (_e, ec) => ec.json({ message: 'Cart not found' }, 404),

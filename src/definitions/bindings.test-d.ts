@@ -55,14 +55,12 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(bare.bindings).toEqualTypeOf<Bindings>();
 
   // With explicit bindings, a middleware typed only with `Variables` does not fit the array.
-  // See `defineRootContext`.
   // @ts-expect-error the middleware does not declare the `Bindings`
   defineRootContext<'/api', SessionVars, Bindings>('/api', [authVarsOnly]);
 
   const added = bare.middleware(authVarsOnly);
   expectTypeOf(added).toEqualTypeOf<RouteContext<'/api', {} & SessionVars, Bindings>>();
 
-  // An inline arrow in the array gets typed bindings.
   defineRootContext<'/api', SessionVars, Bindings>('/api', [
     async (c, next) => {
       expectTypeOf(c.env.DB).toEqualTypeOf<Db>();
@@ -92,7 +90,6 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(fromBindings.vars).toEqualTypeOf<SessionVars>();
   expectTypeOf(fromBindings.bindings).toEqualTypeOf<{ KV: string }>();
 
-  // An untyped middleware adds no bindings.
   const timing = createMiddleware(async (_c, next) => {
     await next();
   });
@@ -101,8 +98,7 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(withTiming.bindings).toEqualTypeOf<Bindings>();
 }
 
-// Two middlewares in the root array that declare the same binding with different types are an
-// error. The same type is accepted.
+// Two middlewares in the root array that declare a binding with different types are an error.
 {
   const kvString = createMiddleware<{ Bindings: { KV: string } }>(async (_c, next) => {
     await next();
@@ -129,8 +125,7 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(shared.vars).toEqualTypeOf<{ tenant: string }>();
 }
 
-// `.middleware()` gives `c.env` the bindings of the context, and adds the `Bindings` of a
-// reusable middleware without a check.
+// `.middleware()` types `c.env`, and adds the `Bindings` of a middleware without a check.
 {
   const api = defineRootContext('/api', [auth]);
 
@@ -155,7 +150,6 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
     await next();
   });
 
-  // Without bindings, `c.env` is `unknown`.
   defineRootContext('/api').middleware(async (c, next) => {
     expectTypeOf(c.env).toEqualTypeOf<unknown>();
     await next();
@@ -173,7 +167,6 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   >();
 
   // On a context with bindings, a middleware typed only with `Variables` uses its own signature.
-  // A second use of it, or a middleware with more vars, compiles.
   const withSession = defineRootContext<'/api', {}, Bindings>('/api').middleware(authVarsOnly);
   expectTypeOf(withSession.middleware(authVarsOnly).vars).toEqualTypeOf<SessionVars>();
 
@@ -238,7 +231,6 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
     RouteContext<'/api/things', SessionVars, Bindings>
   >();
 
-  // A `{ path; vars }` object without `bindings` gives no bindings.
   const parentLike = { path: '/p' as const, vars: {} as SessionVars };
   expectTypeOf(defineChildContext(parentLike, '/x')).toEqualTypeOf<
     RouteContext<'/p/x', SessionVars>
@@ -247,7 +239,6 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
     RouteContext<'/p/x', SessionVars>
   >();
 
-  // A value-form child nested inline in another generic call keeps its path.
   const nested = defineChildContext(defineChildContext(api, '/:id'), '/z').bind(
     'thing',
     'id',
@@ -258,8 +249,7 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   expectTypeOf(nested.bindings).toEqualTypeOf<Bindings>();
 }
 
-// `.bind()` gives the loader the bindings, and the result keeps them. A bound context is
-// assignable to a context with fewer vars.
+// `.bind()` gives the loader the bindings, and the result keeps them.
 {
   const api = defineRootContext<'/api/:id', SessionVars, Bindings>('/api/:id', [auth]);
 
@@ -276,7 +266,7 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
   >();
 
   // A context with bindings is not assignable to a context without them, because Hono's
-  // `Context` is invariant in its `Env`. `ParentContext` and `{ path; vars }` accept both.
+  // `Context` is invariant in its `Env`.
   expectTypeOf(api).not.toExtend<RouteContext<string, object>>();
 }
 

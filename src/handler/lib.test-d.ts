@@ -166,7 +166,7 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   expectTypeOf<R>().toEqualTypeOf<typeof ok200 | typeof conflict409>();
 }
 
-// An arm that only rethrows adds no response. The result equals the result without arms.
+// An arm that only rethrows adds no response.
 {
   const c = {} as Context;
 
@@ -187,7 +187,7 @@ createRouter()(ctx, ({ app, defineRoute }) => {
   expectTypeOf<R>().toEqualTypeOf<NoArms>();
 }
 
-// `handleErrors` and `.errors([...])` give the same type, because both use `ArmsResponse`.
+// `handleErrors` and `.errors([...])` give the same type.
 {
   const c = {} as Context;
 

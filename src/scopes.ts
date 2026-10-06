@@ -4,10 +4,7 @@ import type { RouterEnv } from './definitions/env';
 import type { RouteMiddlewareFactory } from './router';
 
 export interface ScopeMiddlewareOptions<TVars extends object = {}, TBindings extends object = {}> {
-  /**
-   * Returns the scopes of the current request, sync or async. `c.var` has the vars `TVars`,
-   * and `c.env` has the bindings `TBindings`.
-   */
+  /** Returns the scopes of the current request. */
   resolve: (
     c: Context<RouterEnv<TVars, TBindings>>,
   ) => readonly string[] | Promise<readonly string[]>;
@@ -24,21 +21,15 @@ export interface ScopeMiddlewareOptions<TVars extends object = {}, TBindings ext
 
 /**
  * Builds a route middleware factory that requires the scopes of `route.security`, from all
- * schemes. A route without scopes gets no middleware. Pass it as
- * `createRouter({ routeMiddleware: createScopeMiddleware(...) })`.
- *
- * `TVars` types `c.var` in `resolve` and `onForbidden`:
- * `createScopeMiddleware<SessionVars>({ resolve: (c) => c.var.session.scopes })`. The vars are
- * not checked against the contexts of the routes. Give only the vars that the context
- * middlewares set.
+ * schemes. A route without scopes gets no middleware. `TVars` types `c.var` and is not
+ * checked against the contexts of the routes.
  */
 export function createScopeMiddleware<TVars extends object = {}, TBindings extends object = {}>(
   options: ScopeMiddlewareOptions<TVars, TBindings>,
 ): RouteMiddlewareFactory;
 /**
- * Context form: `TVars` and `TBindings` come from `context`, so no type argument is necessary:
- * `createScopeMiddleware(apiContext, { resolve: (c) => c.var.session.scopes })`. Only the type
- * of `context` is used.
+ * Context form: `TVars` and `TBindings` come from the type of `context`, so no type argument
+ * is necessary.
  */
 export function createScopeMiddleware<TVars extends object, TBindings extends object = {}>(
   context: { readonly vars: TVars; readonly bindings?: TBindings },

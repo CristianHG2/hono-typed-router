@@ -68,7 +68,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(ctx.vars).toEqualTypeOf<typeof root.vars>();
   expectTypeOf<keyof typeof ctx.vars>().toEqualTypeOf<never>();
 
-  // A typed handler adds its vars without a type argument.
   const typed: MiddlewareHandler<{ Variables: { z: boolean } }> = async (_c, next) => {
     await next();
   };
@@ -126,7 +125,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error `{ path: '/a' }` has no `vars`
   defineChildContext<{ path: '/a' }>();
 
-  // Any `{ path; vars }` object works as a parent, not only a `RouteContext`.
   const child = defineChildContext<{ path: '/a'; vars: { v: 1 } }>()('/b');
   expectTypeOf(child.path).toEqualTypeOf<'/a/b'>();
   expectTypeOf(child.vars).toEqualTypeOf<{ v: 1 }>();
@@ -148,7 +146,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(thing.path).toEqualTypeOf<'/api/things/:id'>();
   expectTypeOf(thing.vars).toEqualTypeOf<{ user: { id: string } }>();
 
-  // A `.middleware()` parent gives its added vars to the child.
   const org = defineChildContext(root, '/orgs/:orgId').middleware<{ org: { id: string } }>(
     async (_c, next) => {
       await next();
@@ -159,12 +156,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(depts.path).toEqualTypeOf<'/api/orgs/:orgId/departments'>();
   expectTypeOf(depts.vars).toEqualTypeOf<{ user: { id: string } } & { org: { id: string } }>();
 
-  // The curried form gives the same type as the value form.
   const curried = defineChildContext<typeof root>()('/things');
   expectTypeOf(curried.path).toEqualTypeOf<typeof things.path>();
   expectTypeOf(curried.vars).toEqualTypeOf<typeof things.vars>();
 
-  // A non-literal segment widens to a template type.
   const dynamic = '/x' as string;
   expectTypeOf(defineChildContext(root, dynamic).path).toEqualTypeOf<`/api${string}`>();
 
@@ -184,7 +179,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const emptyRoot = defineRootContext('', []);
   expectTypeOf(defineChildContext(emptyRoot, '/things').path).toEqualTypeOf<'/things'>();
 
-  // A trailing slash is dropped only when the segment brings its own.
   expectTypeOf(
     defineChildContext(defineRootContext('/api/', []), '/x').path,
   ).toEqualTypeOf<'/api/x'>();
@@ -203,8 +197,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(defineChildContext(api, '').path).toEqualTypeOf<'/api'>();
 }
 
-// A segment `'/'` or `''` adds nothing to the parent path, as Hono's `basePath` and
-// `route('/')` do. A trailing slash of the parent stays.
+// A segment `'/'` or `''` adds nothing to the parent path, as Hono's `route('/')` does.
 {
   expectTypeOf<ChildPath<'/api', '/'>>().toEqualTypeOf<'/api'>();
   expectTypeOf<ChildPath<'/api', ''>>().toEqualTypeOf<'/api'>();
@@ -219,8 +212,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(defineChildContext(defineChildContext(api, '/'), '/').path).toEqualTypeOf<'/api'>();
 }
 
-// The value form nested inline in another generic call infers the full path. Thus a helper
-// typed by path params accepts the param name.
+// The value form nested inline in another generic call infers the full path.
 {
   function bind<P extends string>(ctx: RouteContext<P, {}>, param: NoInfer<ParamKeys<P>>) {
     return ctx.middleware<{ org: { id: string } }>(async (c, next) => {
@@ -236,7 +228,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(inline.vars).toEqualTypeOf<{ org: { id: string } }>();
   expectTypeOf(inline.middleware).toBeFunction();
 
-  // A grandchild nested inline, and a `'/'` root.
   const deep = bind(
     defineChildContext(defineChildContext(root, '/orgs/:orgId'), '/teams'),
     'orgId',
@@ -249,7 +240,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error 'nope' is not a param of '/api/orgs/:orgId'
   bind(defineChildContext(root, '/orgs/:orgId'), 'nope');
 
-  // The variable form and the curried form also work.
   const ctx = defineChildContext(root, '/orgs/:orgId');
   expectTypeOf(bind(ctx, 'orgId').path).toEqualTypeOf<'/api/orgs/:orgId'>();
   expectTypeOf(
@@ -259,8 +249,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(defineChildContext<typeof root>()).toEqualTypeOf<ChildRouteFn<typeof root>>();
 }
 
-// `.middleware()` accepts `createMiddleware` from `hono/factory`. On a context without vars,
-// an Env with only the new vars fits, and one middleware fits two contexts.
+// `.middleware()` accepts a `createMiddleware` result, and one middleware fits two contexts.
 {
   type Session = { userId: string };
 
@@ -300,7 +289,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     await next();
   });
 
-  // The context gets only the vars that the middleware sets.
   const authed = withRequestId.middleware(loadSession);
   expectTypeOf<keyof typeof authed.vars>().toEqualTypeOf<'requestId' | 'session'>();
   expectTypeOf(authed.vars.session).toEqualTypeOf<Session>();
@@ -308,11 +296,9 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error a type argument selects the inline signature, which rejects a `ContextEnv` middleware
   withRequestId.middleware<{ session: Session }>(loadSession);
 
-  // A child has the vars of its parent, so the middleware fits it.
   const child = defineChildContext(withRequestId, '/things/:id').middleware(loadSession);
   expectTypeOf<keyof typeof child.vars>().toEqualTypeOf<'requestId' | 'session'>();
 
-  // A descendant with more vars also fits.
   const traced = withRequestId.middleware<{ traceId: string }>(async (_c, next) => {
     await next();
   });
@@ -327,7 +313,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     CheckMiddlewareFits<typeof loadSession, {}>
   >().toEqualTypeOf<'This middleware reads vars that the context does not have: requestId'>();
 
-  // An Env with only the new vars (no `READS` key) sets them and fits a context with other vars.
   const onlySession = createMiddleware<{ Variables: { session: Session } }>(async (_c, next) => {
     await next();
   });
@@ -357,7 +342,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error Cannot redeclare existing var: count. Use another var name, or read count from the context.
   withCount.middleware(increment);
 
-  // Each message names one var.
   expectTypeOf<
     CheckMiddlewareFits<typeof increment, { count: number; total: number }>
   >().toEqualTypeOf<'Cannot redeclare existing var: count. Use another var name, or read count from the context.'>();
@@ -372,8 +356,8 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   >();
 }
 
-// A chain of 24 `ContextEnv` middlewares keeps a linear check time because of the `SETS` key.
-// An `Omit` of the previous context made it exponential (0.9 s on TypeScript 7, 6 s on 5.9).
+// A chain of 12 `ContextEnv` middlewares keeps a linear check time because of the `SETS` key.
+// With an `Omit` of the previous context, 24 levels took 0.9 s on TypeScript 7 and 6 s on 5.9.
 // To measure, run `tsc -p tsconfig.test-types.json --noEmit --extendedDiagnostics` with and
 // without this block, and compare `Instantiations` and `Check time`.
 {
@@ -470,8 +454,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf(c12.vars.v1).toEqualTypeOf<1>();
 }
 
-// A typed middleware without the `READS` key sets all its `Variables`. A var that the context
-// has is a redeclaration, even with the same type.
+// Without a `READS` key, a middleware that sets a var of the context is a redeclaration.
 {
   type Session = { userId: string };
 
@@ -496,13 +479,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   api.middleware(sameType);
 
-  // Limit: a second use of the same middleware is not an error. The inline signature matches
-  // it with no new vars.
+  // Limit: a second use of the same middleware compiles. The inline signature matches it.
   const twice = api.middleware(requireSession);
   expectTypeOf<keyof typeof twice.vars>().toEqualTypeOf<'session'>();
 
-  // A middleware with only `Bindings`, or with `Bindings` and `Variables`, fits. The
-  // context gets the `Variables`, and the `Bindings` are added to its bindings.
   const bindingsOnly = createMiddleware<{ Bindings: { DB: string } }>(async (_c, next) => {
     await next();
   });
@@ -522,7 +502,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<keyof typeof withDb.vars>().toEqualTypeOf<'session' | 'db'>();
   expectTypeOf(withDb.bindings).toEqualTypeOf<{ DB: string }>();
 
-  // A `ContextEnv` with `Bindings` keeps the read marker.
   const readsWithBindings = createMiddleware<
     ContextEnv<typeof api, { tenantId: string }> & { Bindings: { DB: string } }
   >(async (c, next) => {
@@ -534,7 +513,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<keyof typeof withTenant.vars>().toEqualTypeOf<'session' | 'tenantId'>();
   expectTypeOf(withTenant.bindings).toEqualTypeOf<{ DB: string }>();
 
-  // An inline arrow keeps a typed `c` without a type argument.
   api.middleware(async (c, next) => {
     expectTypeOf(c.var.session).toEqualTypeOf<Session>();
     await next();
@@ -607,7 +585,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     await next();
   });
 
-  // Untyped middlewares add no vars.
   const mixed = defineRootContext('/api', [timing, a, plain, b]);
   expectTypeOf<Flat<typeof mixed.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
@@ -635,8 +612,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const explicit = defineRootContext<'/api', AVars>('/api', [a]);
   expectTypeOf(explicit.vars).toEqualTypeOf<AVars>();
 
-  // An inline arrow alone in the array is typed by the first signature: it cannot set an
-  // undeclared var.
+  // The first signature types an inline arrow alone in the array.
   defineRootContext('/api', [
     async (c, next) => {
       expectTypeOf<IsAny<typeof c>>().toEqualTypeOf<false>();
@@ -646,8 +622,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     },
   ]);
 
-  // A spread of a `MiddlewareHandler[]` and then a typed middleware gives the vars of that
-  // middleware.
+  // `[...list, a]` gives the vars of `a`.
   const fromSpread = defineRootContext('/api', [...list, a]);
   expectTypeOf(fromSpread.vars).toEqualTypeOf<AVars>();
   fromSpread.middleware(async (c, next) => {
@@ -655,7 +630,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     await next();
   });
 
-  // An untyped `createMiddleware<any>` between typed middlewares adds no vars.
   const anyEnv = createMiddleware<any>(async (_c, next) => {
     await next();
   });
@@ -663,7 +637,6 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const withAnyEnv = defineRootContext('/api', [a, anyEnv, b]);
   expectTypeOf<Flat<typeof withAnyEnv.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
-  // A middleware that declares only `Bindings` adds no vars. The context gets its bindings.
   const bindingsOnly: MiddlewareHandler<{ Bindings: { KV: string } }> = async (_c, next) => {
     await next();
   };
@@ -681,9 +654,8 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 
   expectTypeOf<Flat<typeof explicitFold.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
-  // An inline arrow with typed middlewares that declare different vars: the vars are the fold.
-  // The test does not assert `c`, because it differs by compiler. TypeScript 7 gives
-  // `Context<any>`. TypeScript 5.9 types the keys of `c.set` and `c.get` as `never`.
+  // The test does not assert `c` of this arrow, because it differs by compiler. TypeScript 7
+  // gives `Context<any>`. TypeScript 5.9 types the keys of `c.set` and `c.get` as `never`.
   const withArrow = defineRootContext('/api', [
     a,
     b,
@@ -695,8 +667,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<Flat<typeof withArrow.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 }
 
-// Two middlewares that set the same var with different types are an error. The same type is
-// accepted.
+// Two middlewares that set the same var with different types are an error.
 {
   type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -730,7 +701,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const shared = defineRootContext('/api', [stringId, sameId]);
   expectTypeOf<Flat<typeof shared.vars>>().toEqualTypeOf<{ id: string; a: 1; b: 2 }>();
 
-  // Two literal types of one key make the fold `never`. The message names only that key.
+  // Two literal types of one key make the fold `never`. The message names only `kind`.
   const kindA = createMiddleware<{ Variables: { kind: 'a'; id: string } }>(async (_c, next) => {
     await next();
   });
@@ -743,8 +714,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   defineRootContext('/api', [kindA, kindB]);
 }
 
-// An array variable with mixed middlewares has one union element type, so the fold cannot
-// tell which middleware sets which var. Pass a tuple literal or `as const`.
+// An array variable with mixed middlewares is an error. A tuple literal or `as const` works.
 {
   type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -767,8 +737,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<
     CheckRootArray<typeof mixed>
   >().toEqualTypeOf<'Pass the middlewares as a tuple literal or as const: an array variable with mixed middlewares has one union element type'>();
-  // The spread form is also an error, but TypeScript reports it on each element without the
-  // message.
+  // TypeScript reports the spread form on each element, without the message.
   // @ts-expect-error the element type of `mixed` is a union
   defineRootContext('/api', [...mixed, a]);
 
@@ -779,20 +748,17 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const inlineConst = defineRootContext('/api', [a, b] as const);
   expectTypeOf<Flat<typeof inlineConst.vars>>().toEqualTypeOf<{ a: string; b: number }>();
 
-  // An array variable of one middleware type, or of untyped middlewares, works.
   const onlyA = [a, a];
   expectTypeOf(defineRootContext('/api', onlyA).vars).toEqualTypeOf<{ a: string }>();
 
   const untypedList = [untyped, untyped];
   expectTypeOf(defineRootContext('/api', untypedList).vars).toEqualTypeOf<{}>();
 
-  // A typed and an untyped middleware: the first signature gives the typed vars.
   const typedAndUntyped = [a, untyped];
   expectTypeOf(defineRootContext('/api', typedAndUntyped).vars).toEqualTypeOf<{ a: string }>();
 }
 
-// A `ContextEnv` middleware in the root array adds only the vars that it sets. Another
-// middleware of the array must set the vars that it reads. The order is not checked.
+// A `ContextEnv` middleware in the root array reads the vars of the others, in any order.
 {
   type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -844,8 +810,7 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   expectTypeOf<typeof defineChildRoute>().toEqualTypeOf<typeof defineChildContext>();
 }
 
-// The `{param}` check of a context path runs only at runtime, so a generic wrapper can pass
-// its path through and keep the literal type.
+// The `{param}` check runs only at runtime, so a generic wrapper keeps the literal path type.
 {
   const root = defineRootContext('/api');
 

@@ -1,14 +1,12 @@
 import type { HandlerBindings, HandlerReads, HandlerSets } from './env';
 
 /**
- * The intersection of the vars that each middleware of the array sets. A non-tuple array
- * gives the vars of its element type. An empty array gives `{}`.
+ * The trailing-element branch must come before the `readonly []` branch: `[...list, a]` infers
+ * to `[...MiddlewareHandler[], typeof a]`, and the head branch does not match it. An empty
+ * `[...TMws]` infers to `never[]`, so a `never` element type gives `{}`.
  *
- * @internal Exported for declaration emit.
+ * @internal
  */
-// The trailing-element branch must come before the `readonly []` branch. `[...list, a]`
-// infers to `[...MiddlewareHandler[], typeof a]`, and the head branch does not match it.
-// An empty `[...TMws]` infers to `never[]`, so a `never` element type gives `{}`.
 export type FoldVars<TMws extends readonly unknown[]> = TMws extends readonly [
   infer THead,
   ...infer TRest,
@@ -22,11 +20,7 @@ export type FoldVars<TMws extends readonly unknown[]> = TMws extends readonly [
         ? {}
         : HandlerSets<TMws[number]>;
 
-/**
- * {@link FoldVars} for the `Bindings` of each middleware.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export type FoldBindings<TMws extends readonly unknown[]> = TMws extends readonly [
   infer THead,
   ...infer TRest,
@@ -40,7 +34,6 @@ export type FoldBindings<TMws extends readonly unknown[]> = TMws extends readonl
         ? {}
         : HandlerBindings<TMws[number]>;
 
-/** The check ignores the order of the middlewares in the array. */
 type CheckRootReads<TMws extends readonly unknown[]> = [
   Exclude<ReadKeys<TMws[number]>, keyof FoldVars<TMws>>,
 ] extends [never]
@@ -57,7 +50,6 @@ type RestElement<TMws extends readonly unknown[]> = TMws extends readonly [unkno
     ? RestElement<TInit>
     : TMws[number];
 
-/** `true` if the union `TSets` has two different members. */
 type IsMixed<TSets, TAll = TSets> = true extends (
   TSets extends unknown ? ([TAll] extends [TSets] ? false : true) : never
 )
@@ -75,10 +67,9 @@ type Fold<TMws extends readonly unknown[], TKind extends Kind> = TKind extends '
   : FoldBindings<TMws>;
 
 /**
- * The keys that two middlewares of the array declare with different types. A type is
- * assignable to the folded intersection only when all the types are the same. Two literal
- * types of one key (`{ kind: 'a' }` and `{ kind: 'b' }`) make the fold `never`. Then each
- * pair of middlewares is compared, so the error shows only the conflicting keys.
+ * A type is assignable to the folded intersection only when all the types are the same. Two
+ * literal types of one key (`{ kind: 'a' }` and `{ kind: 'b' }`) make the fold `never`. Then
+ * each pair of middlewares is compared, so that the error shows only the conflicting keys.
  */
 type ConflictKeys<
   TMws extends readonly unknown[],
@@ -106,13 +97,7 @@ type DiffKeys<TA, TB> = {
   [K in keyof TA & keyof TB]-?: [TA[K]] extends [TB[K]] ? ([TB[K]] extends [TA[K]] ? never : K) : K;
 }[keyof TA & keyof TB];
 
-/**
- * Rejects a non-tuple array of middlewares with different vars, because the fold gives a
- * union of the vars for it. Also rejects a var or a binding with two different types, and a read var
- * that no middleware of the array sets.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export type CheckRootArray<TMws extends readonly unknown[]> = number extends TMws['length']
   ? IsMixed<HandlerSets<RestElement<TMws>>> extends true
     ? 'Pass the middlewares as a tuple literal or as const: an array variable with mixed middlewares has one union element type'

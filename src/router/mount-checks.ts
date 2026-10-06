@@ -13,7 +13,6 @@ import {
   type RouteEntry,
 } from './route-match';
 
-/** What a built router tells the parent that mounts it. */
 type BuiltRouter = {
   readonly segment: string;
   /** `true` when the context or a descendant has middlewares, such as a `.bind()` loader. */
@@ -36,7 +35,7 @@ type RouterChecks = {
   readonly caller: RouterCaller;
   /** The router that the callback received. */
   readonly router: OpenAPIHono;
-  /** The app that the thunk returns. The parent reads the record of this app. */
+  /** The app that the thunk returns, which the parent mounts. */
   readonly app: OpenAPIHono;
   readonly fullPath: string;
   readonly segment: string;
@@ -45,10 +44,9 @@ type RouterChecks = {
 };
 
 /**
- * Runs after a router mounts its children, and records the router for its parent. Throws a
- * `TypeError` when two routes have the same method and full path (param names do not count),
- * or when a param child gets the requests of a later sibling (see {@link assertChildOrder}).
- * Limit: a raw route such as `app.get()` is not part of the duplicate check.
+ * Throws when two routes have the same method and full path (param names do not count), or
+ * when a param child gets the requests of a later sibling. Limit: a raw route such as
+ * `app.get()` is not part of the duplicate check.
  */
 export function checkRouter(checks: RouterChecks) {
   const { caller, fullPath } = checks;
@@ -144,12 +142,8 @@ function duplicate(caller: RouterCaller, previous: Declared, next: Declared) {
 }
 
 /**
- * Throws when a param child (`'/:id'`) comes before a literal sibling (`'/stats'`) and gets a
- * request of that sibling. Hono matches in registration order.
- *
- * A route of the param child gets the request when the path and the method match (`HEAD`
- * counts as `GET`, `ALL` as each method). If the param child has middlewares or a route that
- * no `defineRoute` declared, each sibling route under the segment counts.
+ * Hono matches in registration order, so a param child (`'/:id'`) before a literal sibling
+ * (`'/stats'`) can get the requests of that sibling.
  */
 function assertChildOrder(caller: RouterCaller, built: readonly MountedChild[]) {
   for (let i = 0; i < built.length; i++) {

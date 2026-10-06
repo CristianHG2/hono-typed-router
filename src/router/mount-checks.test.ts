@@ -14,7 +14,6 @@ const makeRouter = createRouter();
 
 type Method = 'get' | 'post' | 'head';
 
-// A router with one route for each method, at the context path or at `path`.
 function routes(ctx: Parameters<typeof makeRouter>[0], methods: Method[], path = '/') {
   return makeRouter(ctx, ({ app, defineRoute }) => {
     for (const method of methods) {
@@ -320,7 +319,6 @@ describe('children order', () => {
     );
   });
 
-  // `/stats` with `GET /x`: the message names that route.
   function statsX() {
     return routes(stats, ['get'], '/x');
   }
@@ -330,7 +328,6 @@ describe('children order', () => {
   }
 
   it('accepts a param route that matches no sibling route', async () => {
-    // `GET /:id` vs `GET /stats/x`, and `GET /:id/sub` vs `GET /stats`.
     const one = makeRouter(root, () => {}, [routes(byId, ['get']), statsX()])();
 
     const two = makeRouter(root, () => {}, [
@@ -406,7 +403,6 @@ describe('duplicate routes with createRoute configs', () => {
     return createRoute({ method: 'get', path, responses: { 200: okResponse } });
   }
 
-  // A router that registers `config` with `app.openapi`, as the callback gives it.
   function withRaw(ctx: Parameters<typeof makeRouter>[0], config: RouteConfig) {
     return makeRouter(ctx, ({ app }) => {
       app.openapi(config, (c) => c.json({ ok: true }, 200) as never);
@@ -505,7 +501,6 @@ describe('duplicate routes with createRoute configs', () => {
   it('records a config from the defineRoute of another router on the router that registers it', () => {
     let foreign: RouteConfig | undefined;
 
-    // The router that declares the config does not register it.
     makeRouter(a, ({ defineRoute }) => {
       foreign = defineRoute('get', { responses: { 200: okResponse } });
     })();

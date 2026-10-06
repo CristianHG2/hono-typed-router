@@ -47,21 +47,17 @@ export function genericErrorHandler<T extends ContentfulStatusCode>(statusCode: 
   return (err: Error, c: Context) => c.json({ message: err.message }, statusCode);
 }
 
-/** @internal Any error arm. */
+/** @internal */
 export type AnyArm = ErrorArm<any, any>;
 
 // `async () => rethrow()` widens `Rethrow` to `symbol`, so this excludes all of `symbol`.
 type ArmResponse<TArm> =
   TArm extends ErrorArm<any, infer TResult> ? Exclude<Awaited<TResult>, symbol> : never;
 
-/** @internal The union of the response types of the arms, without `Rethrow`. */
+/** @internal */
 export type ArmsResponse<TArms extends ReadonlyArray<AnyArm>> = ArmResponse<TArms[number]>;
 
-/**
- * Runs the handler of an arm. If the handler throws an `Error` without a `cause`, the original
- * error becomes its `cause`. A frozen or sealed error is thrown unchanged. A module-level
- * error object keeps the `cause` of its first throw.
- */
+// A module-level error object keeps the `cause` of its first throw.
 async function runArm(
   arm: AnyArm,
   err: Error,
@@ -79,8 +75,7 @@ async function runArm(
       try {
         thrown.cause = err;
       } catch {
-        // A setter or a read-only `cause` on the prototype can throw. Throw the error of the
-        // handler, not this one.
+        // A setter or a read-only `cause` on the prototype can throw. Keep the error of the handler.
       }
     }
 
@@ -89,11 +84,9 @@ async function runArm(
 }
 
 /**
- * Runs `body()`. If it throws an `Error`, the first arm that matches by `instanceof` handles
- * it. An arm that returns `rethrow()` passes the error to the next arm. If no arm handles the
- * error, it is thrown again. A thrown value that is not an `Error` skips the arms. An `Error`
- * that an arm throws gets the original error as its `cause` when it has no `cause`. The return
- * type is `TBody` plus the response type of each arm.
+ * Runs `body()`. The first arm that matches a thrown `Error` by `instanceof` handles it, and an
+ * arm that returns `rethrow()` passes it to the next arm. If no arm handles the error, or the
+ * thrown value is not an `Error`, it is thrown again.
  */
 export async function handleErrors<TBody, const TArms extends ReadonlyArray<AnyArm>>(
   body: () => Promise<TBody>,
@@ -125,27 +118,23 @@ export async function handleErrors<TBody, const TArms extends ReadonlyArray<AnyA
   }
 }
 
-/** The constructor of an `Error` subclass, for `matchErrors`. */
 export type ErrorCtor = new (...args: any[]) => Error;
 
-// A tag is a string literal. `string` (for example `Error.prototype.name`) is not a tag.
+// `string`, the type of `Error.prototype.name`, is not a tag.
 type LiteralTag<T> = T extends string ? (string extends T ? never : T) : never;
 
 type UnderscoreTag<TErr> = TErr extends { readonly _tag: infer T } ? LiteralTag<T> : never;
 
 type NameTag<TErr> = TErr extends { readonly name: infer T } ? LiteralTag<T> : never;
 
-/**
- * @internal The handler key of an error class: the literal `_tag` of an instance, else the
- * literal `name` (`override readonly name = 'X' as const`), else `never`.
- */
+/** @internal */
 export type ErrorTag<TCtor extends ErrorCtor> = TCtor extends ErrorCtor
   ? [UnderscoreTag<InstanceType<TCtor>>] extends [never]
     ? NameTag<InstanceType<TCtor>>
     : UnderscoreTag<InstanceType<TCtor>>
   : never;
 
-// The tags that occur more than once. `Tag & Seen` is the tag when it occurred before.
+// `ErrorTag<THead> & TSeen` is the tag when an earlier class has it, else `never`.
 type DuplicateTags<
   TCtors extends readonly ErrorCtor[],
   TSeen extends string = never,
@@ -157,10 +146,7 @@ type DuplicateTags<
   ? DuplicateTags<TRest, TSeen | ErrorTag<THead>, TDuplicate | (ErrorTag<THead> & TSeen)>
   : TDuplicate;
 
-/**
- * @internal Replaces each class that is not valid with an error string that the call site
- * shows.
- */
+/** @internal */
 export type CheckErrorCtors<TCtors extends readonly ErrorCtor[]> = {
   readonly [I in keyof TCtors]: TCtors[I] extends ErrorCtor
     ? [ErrorTag<TCtors[I]>] extends [never]
@@ -171,7 +157,7 @@ export type CheckErrorCtors<TCtors extends readonly ErrorCtor[]> = {
     : TCtors[I];
 };
 
-/** @internal One handler for each error class, with its {@link ErrorTag} as the key. */
+/** @internal */
 export type MatchHandlers<TCtors extends readonly ErrorCtor[]> = {
   readonly [TCtor in TCtors[number] as ErrorTag<TCtor>]: (
     err: InstanceType<TCtor>,
@@ -189,7 +175,6 @@ type JoinTags<TCtors extends readonly unknown[]> = TCtors extends readonly [
     : `${ErrorTag<THead>}, ${JoinTags<TRest>}`
   : string;
 
-// The type of an extra key is a message that names the valid tags.
 type NoExtraKeys<TCtors extends readonly ErrorCtor[], THandlers> = {
   readonly [
     K in Exclude<keyof THandlers, ErrorTag<TCtors[number]>>
@@ -215,29 +200,18 @@ type LooseHandler = (err: Error, c: Context) => ReturnType<AnyArm['handle']>;
 const TAG_KEY = '_tag';
 
 /**
- * Declares one error arm for each class in `errors`. `handlers` has one handler for each
- * {@link ErrorTag}, and no other key. Pass the result to `handle(c, fn, ...)` or
- * `handleErrors`, or spread it next to `onError` arms.
- *
- * The runtime tag of the error selects the handler: `_tag` when `handlers` has that key, else
- * `name`. The order of `errors` has no effect. Do not use one tag on two unrelated classes. A
- * handler that returns `rethrow()` passes the error to the next arm after this tuple.
- *
- * ```ts
- * handle(c, fn, matchErrors([CartNotFound, OutOfStock], {
- *   CartNotFound: (_e, ec) => ec.json({ message: 'Cart not found' }, 404),
- *   OutOfStock: (e, ec) => ec.json({ message: `Out of stock: ${e.sku}` }, 409),
- * }));
- * ```
+ * Declares one error arm for each class in `errors`. `handlers` has one handler for each tag:
+ * the literal `_tag` of the class, else its literal `name`. Do not use one tag on two unrelated
+ * classes.
  */
 export function matchErrors<
   const TCtors extends readonly ErrorCtor[],
   THandlers extends MatchHandlers<TCtors> & NoExtraKeys<TCtors, THandlers>,
 >(errors: TCtors & CheckErrorCtors<TCtors>, handlers: THandlers): MatchArms<TCtors, THandlers> {
   const ctors: readonly ErrorCtor[] = errors;
-  // SAFETY: a handler runs only for an error that is `instanceof` a listed class and whose
-  // runtime tag equals its key. The literal tags make that error an instance of the class of
-  // the key. A subclass that sets the tag of another listed class breaks this.
+  // SAFETY: a handler runs only for an error that is `instanceof` a listed class and has the tag
+  // of its key, so the error is an instance of the class of the key. A subclass that sets the
+  // tag of another listed class breaks this.
   const table = new Map(Object.entries(handlers) as Array<[string, LooseHandler]>);
 
   function resolve(err: Error): LooseHandler | undefined {
@@ -254,8 +228,8 @@ export function matchErrors<
 
   const arms = ctors.map((ctor, index) =>
     onError(ctor, (err, c) => {
-      // Only the first arm that matches runs. Thus `rethrow()` skips the rest of the tuple and
-      // does not run the same handler again.
+      // Only the first matching arm of the tuple runs, so `rethrow()` does not run the same
+      // handler again.
       if (ctors.findIndex((candidate) => err instanceof candidate) !== index) {
         return RETHROW_SENTINEL;
       }

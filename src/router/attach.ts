@@ -6,7 +6,6 @@ import { honoJoin } from './route-match';
 
 type DeclaredRoute = {
   readonly route: RouteConfig;
-  /** Only this app can register the route. */
   readonly owner: OpenAPIHono;
   readonly mws: readonly MiddlewareHandler[];
   attached: boolean;
@@ -15,10 +14,8 @@ type DeclaredRoute = {
   readonly declared: boolean;
 };
 
-// Weak keys let the garbage collector free a config and its middlewares with the app.
 const DECLARED = new WeakMap<object, DeclaredRoute>();
 
-// In declaration order.
 const BY_ROUTER = new WeakMap<OpenAPIHono, DeclaredRoute[]>();
 
 export function recordRoute(
@@ -53,7 +50,6 @@ function isRecorded(app: OpenAPIHono, route: RouteConfig): boolean {
   return BY_ROUTER.get(app)?.some((entry) => entry.route === route) ?? false;
 }
 
-/** A route config that `router.openapi` registered. */
 export type RegisteredRoute = {
   readonly route: RouteConfig;
   /** `true` when the `defineRoute` of the router returned the config. */
@@ -61,8 +57,8 @@ export type RegisteredRoute = {
 };
 
 /**
- * The route configs that `router.openapi` registered, each one time, in registration order.
- * Limit: a route on `app.basePath(...)` or a raw `app.get()` is not in the list.
+ * The route configs that `router.openapi` registered, each one time. Limit: a route on
+ * `app.basePath(...)` or a raw `app.get()` is not in the list.
  */
 export function registeredRoutes(router: OpenAPIHono): RegisteredRoute[] {
   return (BY_ROUTER.get(router) ?? [])
@@ -70,10 +66,6 @@ export function registeredRoutes(router: OpenAPIHono): RegisteredRoute[] {
     .map(({ route, declared }) => ({ route, declared }));
 }
 
-/**
- * Throws when a route of `router` has route middlewares that `openapi` did not attach. This
- * occurs when the callback registers the route on another app and returns that app.
- */
 export function assertRoutesAttached(router: OpenAPIHono, fullPath: string, caller: RouterCaller) {
   const missed = BY_ROUTER.get(router)?.find((entry) => !entry.attached && entry.mws.length > 0);
 
@@ -91,9 +83,8 @@ export function assertRoutesAttached(router: OpenAPIHono, fullPath: string, call
 type OpenapiFn = (...args: never[]) => object;
 
 /**
- * Wraps `openapi` on an app without `createRouter` options. The app accepts each route
- * config. It throws for a config with route middlewares from another app, because it cannot
- * run them. It records the other configs, so the duplicate check sees them.
+ * For an app without `createRouter` options. It records each config for the duplicate check,
+ * and throws for a config with route middlewares from another app.
  */
 export function attachOnOpenapi(app: OpenAPIHono) {
   wrapOpenapi(app, (route) => {
@@ -118,10 +109,7 @@ export function attachOnOpenapi(app: OpenAPIHono) {
   });
 }
 
-/**
- * As {@link attachOnOpenapi}, but a config that did not come from the `defineRoute` of this
- * app throws, because `options` do not apply to it.
- */
+/** As {@link attachOnOpenapi}, but each config must come from the `defineRoute` of `app`. */
 export function guardOpenapi(app: OpenAPIHono, fullPath: string, options: readonly string[]) {
   wrapOpenapi(app, (route) => {
     const entry = DECLARED.get(route);

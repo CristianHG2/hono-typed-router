@@ -29,7 +29,6 @@ function wrapsRestOfBody(node: ESTree.IfStatement): boolean {
   return parent.type === 'BlockStatement' && parent.body.at(-1) === node;
 }
 
-/** Flag a final `if` that wraps the rest of a function or loop body; prefer an early exit. */
 export const preferEarlyReturnRule = defineRule({
   meta: {
     type: 'suggestion',

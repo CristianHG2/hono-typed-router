@@ -16,8 +16,8 @@ import type {
 import type { DeferredChildContextFn, NoRedeclare, ParentContext, RouteContext } from './types';
 
 /**
- * A higher-kinded slot that passes a context interface with two type parameters to
- * {@link extendRouteContext}. Map the `path` and `vars` slots to your context interface:
+ * Passes a context interface with two type parameters to {@link extendRouteContext}. Map the
+ * `path` and `vars` slots to your context interface:
  *
  * ```ts
  * interface MyContextKind extends RouteContextKind {
@@ -32,9 +32,9 @@ export interface RouteContextKind {
 }
 
 /**
- * The context type of a {@link RouteContextKind} at a given `path` and `vars`. The `type` of
- * the kind is an interface, which TypeScript resolves lazily. Thus a chain of methods that
- * return this type does not hit the "excessively deep" instantiation error.
+ * The context type of a {@link RouteContextKind} at a `path` and `vars`. TypeScript resolves the
+ * interface in `type` lazily, so a long chain of methods that return this type does not hit the
+ * "excessively deep" instantiation error.
  */
 export type ReaugmentContext<
   K extends RouteContextKind,
@@ -43,22 +43,9 @@ export type ReaugmentContext<
 > = (K & { readonly path: TPath; readonly vars: TVars })['type'];
 
 /**
- * The base members of an extended context interface. Extend it in your context interface
- * and add your builders. Each builder returns `ReaugmentContext<YourKind, TPath, TVars & NewVars>`:
- *
- * ```ts
- * interface MyContext<TPath extends string, TVars extends object>
- *   extends RouteContextBase<MyContextKind, TPath, TVars> {
- *   bindRepository: <TKey extends string, TRepo>(
- *     key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}". Use another var name, or read "${TKey}" from the context.` : TKey,
- *     param: ParamKeys<TPath>,
- *     repository: () => TRepo,
- *   ) => ReaugmentContext<MyContextKind, TPath, TVars & { [K in TKey]: Relations<TRepo> }>;
- * }
- * ```
- *
- * This interface declares `middleware` and `bind`. Do not declare a builder with one of
- * these names.
+ * The base members of an extended context interface. Extend it in your context interface, and
+ * return `ReaugmentContext<YourKind, TPath, TVars & NewVars>` from each builder. It declares
+ * `middleware` and `bind`, so do not declare a builder with one of these names.
  */
 export interface RouteContextBase<
   K extends RouteContextKind,
@@ -66,7 +53,7 @@ export interface RouteContextBase<
   TVars extends object,
 > extends Omit<RouteContext<TPath, TVars>, 'middleware' | 'bind'> {
   middleware: {
-    /** An inline handler. Must stay first (see `MiddlewareFactory`). */
+    /** An inline handler. Keep this signature first (see `MiddlewareFactory`). */
     <TNewVars extends NoRedeclare<TNewVars, TVars> = {}>(
       handler: MiddlewareHandler<{ Variables: TVars & TNewVars }, TPath>,
     ): ReaugmentContext<K, TPath, TVars & TNewVars>;
@@ -85,22 +72,17 @@ export interface RouteContextBase<
 
 type BaseKeys = keyof RouteContextBase<RouteContextKind, string, object>;
 
-/**
- * The names of the builders that `K` adds to {@link RouteContextBase}.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export type ExtensionNames<K extends RouteContextKind> = Exclude<
   keyof ReaugmentContext<K, string, object>,
   BaseKeys
 >;
 
 /**
- * The runtime builders of the methods of `K`. Each builder gets the extended context and
- * returns the method. The method parameters come from the context interface at a `string`
- * path and `object` vars. Callers see the exact signature of the context interface.
+ * The method parameters come from the context interface at a `string` path and `object` vars.
+ * Callers see the exact signature of the context interface.
  *
- * @internal Exported for declaration emit.
+ * @internal
  */
 export type ExtensionBuilders<K extends RouteContextKind> = {
   [Name in ExtensionNames<K> & string]: (
@@ -114,25 +96,19 @@ export type ExtensionBuilders<K extends RouteContextKind> = {
 // `(...args: any) => any` constraint (TS2344).
 type ParamsOf<T> = T extends (...args: infer P) => unknown ? P : never;
 
-/**
- * The `define*` functions that {@link extendRouteContext} returns.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export interface ExtendRouteContextResult<K extends RouteContextKind> {
   defineRootContext: {
-    /** Must stay first (see `defineRootContext`). */
+    /** Keep this signature first (see `defineRootContext`). */
     <TPath extends string, TVars extends object = {}>(
       path: TPath,
       middlewares?: MiddlewareHandler<{ Variables: TVars }>[],
     ): ReaugmentContext<K, TPath, TVars>;
     /**
-     * Fold (see `defineRootContext`).
-     *
-     * `_TVars` is internal. Do not pass it. Four explicit type arguments set the vars without
-     * a check. A kind evaluates `this['vars'] & object`.
-     * TypeScript simplifies that to `_TVars` for a type parameter. For a concrete `{}`, it
-     * gives `object`, so a direct `FoldVars<TMws>` gives the wrong vars.
+     * Fold (see `defineRootContext`). Do not pass `_TVars`: four explicit type arguments set
+     * the vars without a check. A kind evaluates `this['vars'] & object`. TypeScript simplifies
+     * that to `_TVars` for a type parameter, but to `object` for a concrete `{}`, so a direct
+     * `FoldVars<TMws>` gives the wrong vars.
      */
     <
       TPath extends string,
@@ -175,28 +151,8 @@ export interface ExtendRouteContextResult<K extends RouteContextKind> {
 
 /**
  * Adds typed builder methods to the contexts of `defineRootContext` and `defineChildContext`.
- * Each method gets the path and the vars of the context. The contexts that `.middleware()`,
- * `.bind()` and your builders return keep the methods.
- *
- * An extended context does not carry Cloudflare `Bindings`. A parent with bindings, and a
- * middleware that declares `Bindings`, are compile errors.
- *
- * Declare the context as an interface that extends {@link RouteContextBase}, and a
- * {@link RouteContextKind} for it. Pass the kind as the type argument and the runtime
- * builders as the argument:
- *
- * ```ts
- * interface Ctx<P extends string, V extends object> extends RouteContextBase<CtxK, P, V> {
- *   bindValue: <K extends string, T>(key: ..., param: ParamKeys<P>, produce: () => T)
- *     => ReaugmentContext<CtxK, P, V & { [Key in K]: T }>;
- * }
- * interface CtxK extends RouteContextKind { type: Ctx<this['path'] & string, this['vars'] & object>; }
- *
- * const { defineRootContext, defineChildContext } = extendRouteContext<CtxK>({
- *   bindValue: (ctx) => (key, param, produce) =>
- *     ctx.middleware(async (c, next) => { c.set(key, produce(c.req.param(param))); await next(); }),
- * });
- * ```
+ * The contexts that `.middleware()`, `.bind()` and your builders return keep the methods. An
+ * extended context does not carry Cloudflare `Bindings`. `docs/api.md` has an example.
  */
 export function extendRouteContext<K extends RouteContextKind>(
   builders: ExtensionBuilders<K>,

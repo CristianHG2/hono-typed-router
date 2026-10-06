@@ -3,22 +3,15 @@ import type { ParamKeys } from 'hono/types';
 import type { RedeclareMessage, RouterEnv } from './env';
 
 /**
- * The params that `.bind()` accepts: the required params of the context path. An optional
- * `:param?` is not accepted, because a request can match the path without it.
+ * An optional `:param?` is excluded, because a request can match the path without it.
  *
- * @internal Exported for declaration emit.
+ * @internal
  */
 export type BindParam<TPath extends string> = Exclude<ParamKeys<TPath>, `${string}?`>;
 
-/** `true` when `T` is one type, `false` when `T` is a union. `TAll` keeps the whole union. */
 type IsOne<T, TAll = T> = T extends unknown ? ([TAll] extends [T] ? true : false) : never;
 
-/**
- * The type of the `key` of `.bind()`: `TKey`, or an error message. The key must be one new
- * string literal.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export type BindKey<TKey extends string, TVars> = string extends TKey
   ? 'Use a string literal for the key'
   : IsOne<TKey> extends true
@@ -40,28 +33,18 @@ export type BindLoader<TVars extends object, TValue, TBindings extends object = 
 type BindLoaded<T> = T extends Promise<infer U> ? U : T;
 
 /**
- * `'any'` for `any`, `'empty'` for `never`, else `'value'`. TypeScript replaces a type
- * parameter with a permissive wildcard type when it selects the branch of a deferred
- * conditional type. The `[0] extends [1 & T]` test sends the wildcard to `'any'`. Thus a
- * loader with a generic return type is not rejected.
+ * TypeScript replaces a type parameter with a permissive wildcard type when it selects the
+ * branch of a deferred conditional type. The `[0] extends [1 & T]` test sends the wildcard to
+ * `'any'`, so a loader with a generic return type is not rejected.
  */
 type BindLoadedKind<T> = [0] extends [1 & T] ? 'any' : [T] extends [never] ? 'empty' : 'value';
 
-/**
- * The check of the loader of `.bind()`: an error message when the loader can return only
- * `null`, `undefined`, `void`, `never`, or a promise of one of these. Otherwise `unknown`.
- *
- * @internal Exported for declaration emit.
- */
+/** @internal */
 export type CheckBindLoader<TValue> =
   BindLoadedKind<Exclude<BindLoaded<TValue>, null | undefined | void>> extends 'empty'
     ? 'The loader returns no value: return the value of the var, or null when there is none'
     : unknown;
 
-/**
- * Internal: the middleware that `.bind()` adds (see `RouteContext.bind`). `inspectRoutes`
- * shows its name, and `showRoutes` shows it only with `{ verbose: true }`.
- */
 export function createBindMiddleware<TValue>(
   key: string,
   param: string,

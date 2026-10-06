@@ -20,13 +20,8 @@ type AnyRouteConfigInput = Parameters<typeof createRoute>[0];
 
 /**
  * Makes a `makeRouter` function. Each router from it gets the same `routeDefaults`,
- * `transformRoute` and `routeMiddleware`.
- *
- * With one of these options, `app.openapi` accepts only a config from the `defineRoute` of the
- * same callback. It throws a `TypeError` for a `createRoute` config, a config from another
- * router, or a copy such as `{ ...route, hide: true }`. Set `hide` in `defineRoute`.
- *
- * If you set `routeDefaults` and the deprecated `base`, `routeDefaults` wins.
+ * `transformRoute` and `routeMiddleware`. With one of these options, `app.openapi` throws a
+ * `TypeError` for a config that the `defineRoute` of the same callback did not return.
  */
 export function createRouter<const TBase extends BaseRouteConfig = {}>(
   options: Omit<CreateRouterOptions<TBase>, 'base'> & {
@@ -48,7 +43,6 @@ export function createRouter(
   return createRouterImpl(options, 'makeRouter');
 }
 
-// `caller` is the public function that the runtime errors name.
 function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
   options: CreateRouterOptions<TBase>,
   caller: RouterCaller,
@@ -67,7 +61,6 @@ function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
     // SAFETY: `request` of a route config is an object when present.
     (base?.request as { params?: unknown } | undefined)?.params !== undefined;
 
-  // With one of these options, a route config must come from `defineRoute`.
   const effectiveOptions = [
     base !== undefined && Object.keys(base).length > 0 ? 'routeDefaults' : undefined,
     transformRoute === undefined ? undefined : 'transformRoute',
@@ -91,7 +84,7 @@ function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
     }) => unknown,
     children?: ((mount?: RouterMount) => OpenAPIHono<any, any, any>)[],
   ) => {
-    // A parent passes `mount` when it mounts this thunk. The public type stays `() => ...`.
+    // Only a parent passes `mount`. The public type stays `() => ...`.
     return (mount?: RouterMount) => {
       if (mount) {
         assertMountedUnderParent(context, mount);
@@ -101,7 +94,7 @@ function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
       const segment = context.segment ?? context.path;
       const router = new OpenAPIHono().basePath(segment);
 
-      // Called directly, only the context `path` is known. See `RouteMeta.path`.
+      // Called directly, the router knows only the `path` of its context.
       const fullPath = mount ? joinChildPath(mount.basePath, segment) : context.path;
 
       // Called directly, the app serves at its segment, with only the params of the segment.
@@ -131,7 +124,6 @@ function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
           declared = transformRoute(declared, meta);
         }
 
-        // `openapi` attaches these middlewares when it registers the route.
         const mws: MiddlewareHandler[] = [];
 
         for (const f of factories) {
@@ -185,9 +177,9 @@ function createRouterImpl<const TBase extends BaseRouteConfig = {}>(
 }
 
 /**
- * The `makeRouter` of `mountRouter`. The plain function type keeps the `MakeRouterFn`
- * overloads out of `./mount`. With TypeScript 7 parallel checkers, a call to them in a
- * second module costs about 140,000 more instantiations for each project.
+ * The plain function type keeps the `MakeRouterFn` overloads out of `./mount`. With
+ * TypeScript 7 parallel checkers, a call to them in a second module costs about 140,000 more
+ * instantiations for each project.
  */
 export const mountingRouter: (
   context: RouteContext<string, object>,

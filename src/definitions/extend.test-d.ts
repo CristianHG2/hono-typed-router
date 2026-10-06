@@ -11,8 +11,6 @@ import type {
   RouteContextKind,
 } from './extend';
 
-// A sample extension: it sets a value from a path param as a new typed var and rejects a
-// redeclared var. It tests the path (`ParamKeys`), the vars merge, and the extended return type.
 interface TestContext<TPath extends string, TVars extends object> extends RouteContextBase<
   TestContextKind,
   TPath,
@@ -114,8 +112,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(bound.vars).toMatchTypeOf<{ user: { id: string }; thing: number }>();
 }
 
-// A builder gets its parameter types from the context interface, not `any`, and must return
-// a context.
+// A builder gets its parameter types from the context interface and must return a context.
 {
   extendRouteContext<TestContextKind>({
     bindValue: (ctx) => (key, param, produce) => {
@@ -145,8 +142,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   defineChildContext<{ path: '/a' }>();
 }
 
-// The value form on an extended context keeps the path, the vars and the builders. A
-// grandchild also works.
+// The value form on an extended context keeps the path, the vars and the builders.
 {
   const root = defineRootContext('/api/:tenantId', []).bindValue('tenant', 'tenantId', (id) => ({
     id,
@@ -195,8 +191,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf(defineChildContext(defineRootContext('', []), 'x').path).toEqualTypeOf<'/x'>();
 }
 
-// The value form nested inline in another generic call infers the full path on an extended
-// context too.
+// The value form nested inline in a generic call infers the full path on an extended context.
 {
   function bind<P extends string>(ctx: TestContext<P, {}>, param: NoInfer<ParamKeys<P>>) {
     return ctx.bindValue('org', param, (id) => ({ id }));
@@ -219,7 +214,6 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   // @ts-expect-error 'nope' is not a param of '/api/orgs/:orgId'
   bind(defineChildContext(root, '/orgs/:orgId'), 'nope');
 
-  // The curried form also works inline and returns a callable child builder.
   expectTypeOf(
     bind(defineChildContext<typeof root>()('/orgs/:orgId'), 'orgId').path,
   ).toEqualTypeOf<'/api/orgs/:orgId'>();
@@ -252,18 +246,15 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   expectTypeOf<Flat<typeof folded.vars>>().toEqualTypeOf<{ a: string; b: number }>();
   expectTypeOf(folded.bindValue).toBeFunction();
 
-  // No array and an empty array give `{}`, not `object`.
   const bare = defineRootContext('/e');
   expectTypeOf<IsAny<typeof bare.vars>>().toEqualTypeOf<false>();
   expectTypeOf(bare.vars).toEqualTypeOf<{}>();
   expectTypeOf(defineRootContext('/e', []).vars).toEqualTypeOf<{}>();
 
-  // A `MiddlewareHandler[]` variable gives `{}`, not `object`.
   const list: MiddlewareHandler[] = [];
   expectTypeOf(defineRootContext('/e', list).vars).toEqualTypeOf<{}>();
   expectTypeOf(defineRootContext('/e', [plainMw] as MiddlewareHandler[]).vars).toEqualTypeOf<{}>();
 
-  // Typed middlewares with different vars give their intersection, with no leading `object &`.
   expectTypeOf(defineRootContext('/e', [a, b]).vars).toEqualTypeOf<{ a: string } & { b: number }>();
 
   // A long chain on a folded root keeps each var and the extension, without TS2589.
@@ -327,7 +318,6 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
   // @ts-expect-error Cannot redeclare existing var: tenantId. Use another var name, or read tenantId from the context.
   tenant.middleware(setTenant);
 
-  // A `ContextEnv` middleware in the root array adds only the vars that it sets.
   const root = defineRootContext('/api/:id', [requireSession, loadTenant]);
   expectTypeOf<keyof typeof root.vars>().toEqualTypeOf<'session' | 'tenantId'>();
 

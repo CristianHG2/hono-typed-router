@@ -171,7 +171,6 @@ describe('handleErrors', () => {
     ).rejects.toBe(frozen);
     expect(frozen.cause).toBeUndefined();
 
-    // A read-only `cause` on the prototype also rejects the value.
     class ReadOnlyCauseError extends Error {
       get cause(): unknown {
         return undefined;
@@ -185,7 +184,6 @@ describe('handleErrors', () => {
       handleErrors(() => Promise.reject(new FooError()), throwReadOnly, makeContext()),
     ).rejects.toBe(readOnly);
 
-    // A module-level singleton keeps the cause of its first throw.
     const singleton = new BarError();
     const first = new FooError();
     const throwSingleton = [onError(FooError, () => Promise.reject(singleton))] as const;
@@ -240,12 +238,12 @@ class Legacy extends Error {
   override readonly name = 'Legacy' as const;
 }
 
-// The subclass adds a `_tag`. TypeScript does not let a subclass change a literal `_tag` or
-// `name`, so this is the only way for a subclass to have a different tag.
 class Payment extends Error {
   override readonly name = 'Payment' as const;
 }
 
+// TypeScript does not let a subclass change a literal `_tag` or `name`. Adding a `_tag` is the
+// only way for a subclass to get a different tag.
 class CardDeclined extends Payment {
   readonly _tag = 'CardDeclined' as const;
 }
@@ -256,8 +254,7 @@ class BothTags extends Error {
   override readonly name = 'FromName' as const;
 }
 
-// `matchErrors` accepts the literal `_tag` type, but no instance sets `_tag` at runtime. Thus
-// no handler has the tag of an instance.
+// `declare` sets no `_tag` at runtime, so no handler has the tag of an instance.
 class Ghost extends Error {
   declare readonly _tag: 'Ghost';
 }
