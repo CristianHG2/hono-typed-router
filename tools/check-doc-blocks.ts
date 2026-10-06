@@ -224,7 +224,9 @@ for (const [docPath, mirrorPath] of PAIRS) {
 
       const head = block.code.split('\n').slice(0, 3);
 
-      console.error(`${docPath}:${block.line} ts block has no twin in ${mirrorPath}`);
+      console.error(
+        `${docPath}:${block.line} ts block has no twin in ${mirrorPath}. Copy the block into ${mirrorPath} after its setup lines, or put ${SKIP_MARKER} above the fence.`,
+      );
       console.error(head.map((line) => `    ${line}`).join('\n'));
     }
   }

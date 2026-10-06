@@ -3,6 +3,7 @@ import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { createScopeMiddleware } from '../scopes';
 import { defineChildContext, defineRootContext } from './lib';
+import type { CheckRootArray } from './root-array';
 import type { ContextEnv, READS, RouteContext, SETS } from './types';
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
@@ -115,6 +116,10 @@ const kv = createMiddleware<{ Bindings: { KV: string }; Variables: { tenant: str
 
   // @ts-expect-error Middlewares in the array declare the same binding with different types: KV
   defineRootContext('/k', [kvString, kvNumber]);
+
+  expectTypeOf<
+    CheckRootArray<[typeof kvString, typeof kvNumber]>
+  >().toEqualTypeOf<'Middlewares in the array declare the same binding with different types: KV'>();
 
   // @ts-expect-error Middlewares in the array declare the same binding with different types: KV
   defineRootContext('/k', [kv, kvNumber]);

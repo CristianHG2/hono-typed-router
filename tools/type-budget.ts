@@ -234,9 +234,27 @@ if (process.argv.includes('--update')) {
 
   if (failures.length > 0) {
     console.error(failures.map((failure) => `type-budget: ${failure}`).join('\n'));
+
+    const installed = typescriptVersion();
+
+    if (installed !== budget.typescript) {
+      console.error(
+        `The budget was recorded with TypeScript ${budget.typescript}, now ${installed}. ` +
+          'If only TypeScript changed, run --update.',
+      );
+    }
+
     console.error(
       'If the increase is intended, run `pnpm check:type-budget --update` and commit the file.',
     );
     process.exitCode = 1;
+  } else {
+    console.log(
+      [
+        `perRoute ${perRoute} (recorded ${budget.perRoute.current}, max ${budget.perRoute.max})`,
+        `testTypes ${testTypes.instantiations} ` +
+          `(recorded ${budget.testTypes.current}, max ${budget.testTypes.max})`,
+      ].join('\n'),
+    );
   }
 }

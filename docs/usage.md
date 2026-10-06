@@ -746,7 +746,7 @@ const departmentsContext = defineChildContext(organizationContext, '/departments
 `loadMembership` reads `session` and `organization`, and sets `membership`. `departmentsContext` adds only `membership`. These errors can occur:
 
 - If the context does not have a var that the middleware reads, the error is `This middleware reads vars that the context does not have: <key>`.
-- If the middleware sets a var that the context has, the error is `Cannot redeclare existing var: <key>`.
+- If the middleware sets a var that the context has, the error is `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.`
 
 ## Serving the app (Node, Bun, Cloudflare Workers)
 
@@ -1236,7 +1236,9 @@ interface Ctx<TPath extends string, TVars extends object> extends RouteContextBa
   TVars
 > {
   bindRepository: <TKey extends string, TRepo>(
-    key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+    key: TKey extends keyof TVars
+      ? `Cannot redeclare existing var: "${TKey}". Use another var name, or read "${TKey}" from the context.`
+      : TKey,
     param: ParamKeys<TPath>,
     repository: () => TRepo,
   ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: RelationsFor<TRepo> }>;

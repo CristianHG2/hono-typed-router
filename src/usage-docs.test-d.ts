@@ -756,7 +756,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // @ts-expect-error This middleware reads vars that the context does not have: organization, session
   defineRootContext('/public').middleware(loadMembership);
 
-  // @ts-expect-error Cannot redeclare existing var: membership
+  // @ts-expect-error Cannot redeclare existing var: membership. Use another var name, or read membership from the context.
   departmentsContext.middleware(loadMembership);
 }
 
@@ -1212,7 +1212,9 @@ declare const findMembership: (
     TVars
   > {
     bindRepository: <TKey extends string, TRepo>(
-      key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+      key: TKey extends keyof TVars
+        ? `Cannot redeclare existing var: "${TKey}". Use another var name, or read "${TKey}" from the context.`
+        : TKey,
       param: ParamKeys<TPath>,
       repository: () => TRepo,
     ) => ReaugmentContext<CtxKind, TPath, TVars & { [K in TKey]: RelationsFor<TRepo> }>;

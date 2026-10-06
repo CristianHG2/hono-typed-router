@@ -6,7 +6,7 @@ import { defineRootContext } from '../definitions';
 import { jsonResponse } from '../factories';
 import { handle } from '../handler';
 import { matchErrors, onError, rethrow } from './lib';
-import type { ErrorTag } from './lib';
+import type { CheckErrorCtors, ErrorTag } from './lib';
 
 class CartNotFound extends Error {
   readonly _tag = 'CartNotFound' as const;
@@ -84,6 +84,10 @@ class SameTagAsCart extends Error {
     [CartNotFound, Untagged],
     { CartNotFound: () => 'nf' },
   );
+
+  expectTypeOf<
+    CheckErrorCtors<[typeof CartNotFound, typeof Untagged]>[1]
+  >().toEqualTypeOf<'Error class at index 1 needs a literal _tag or name'>();
 }
 
 // The class list rejects two classes with the same tag.
@@ -93,6 +97,10 @@ class SameTagAsCart extends Error {
     [CartNotFound, SameTagAsCart],
     { CartNotFound: () => 'nf' },
   );
+
+  expectTypeOf<
+    CheckErrorCtors<[typeof CartNotFound, typeof SameTagAsCart]>[1]
+  >().toEqualTypeOf<'Error class at index 1 shares the tag "CartNotFound" with another class'>();
 }
 
 // `handle(c, fn, matchErrors(...))` gives the same type as the equal `onError` arms. A handler

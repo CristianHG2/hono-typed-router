@@ -50,7 +50,7 @@ export type ReaugmentContext<
  * interface MyContext<TPath extends string, TVars extends object>
  *   extends RouteContextBase<MyContextKind, TPath, TVars> {
  *   bindRepository: <TKey extends string, TRepo>(
- *     key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+ *     key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}". Use another var name, or read "${TKey}" from the context.` : TKey,
  *     param: ParamKeys<TPath>,
  *     repository: () => TRepo,
  *   ) => ReaugmentContext<MyContextKind, TPath, TVars & { [K in TKey]: Relations<TRepo> }>;

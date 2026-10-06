@@ -173,15 +173,15 @@ interface RouteContext<TPath extends string, TVars extends object, TBindings ext
 - `middlewares`: the runtime list of middlewares that `makeRouter` applies.
 - `segment`: internal. It is the path relative to the parent. `makeRouter` uses it as the base path of the router, so that mounting does not prefix the parent path twice. When it is absent, `makeRouter` uses `path`.
 - `middleware(handler)`: returns a new context with `handler` appended and the new vars merged into `TVars`. It has three signatures:
-  - The inline handler form is `.middleware<NewVars>(handler)`. `c` has `TVars & NewVars`, and `c.env` has `TBindings`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>"`. So a redeclaration fails on the type argument with a single error, and the handler keeps its contextual types. An inline arrow without a type argument adds `{}`, so give `NewVars` for inline arrows. An explicit type argument always selects this signature.
-  - The reusable typed middleware form is `.middleware(middleware)`, with no type argument. A middleware typed `createMiddleware<{ Variables: NewVars }>` reads no vars and sets `NewVars`, so it fits any context. A middleware typed `createMiddleware<ContextEnv<typeof ctx, NewVars>>` reads the vars of `ctx` and sets `NewVars`, so it fits `ctx` and each descendant with more vars. The context gets only the vars that the middleware sets. A set var that `TVars` already has, with the same type or a different type, is `Cannot redeclare existing var: <key>`. A read var that `TVars` does not have is `This middleware reads vars that the context does not have: <key>`. The `Bindings` of the middleware are added to the bindings of the context. Nothing checks them, because the bindings come from the runtime configuration.
+  - The inline handler form is `.middleware<NewVars>(handler)`. `c` has `TVars & NewVars`, and `c.env` has `TBindings`. `NewVars` is constrained so that a key already in `TVars` maps to `"Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context."`. So a redeclaration fails on the type argument with a single error, and the handler keeps its contextual types. An inline arrow without a type argument adds `{}`, so give `NewVars` for inline arrows. An explicit type argument always selects this signature.
+  - The reusable typed middleware form is `.middleware(middleware)`, with no type argument. A middleware typed `createMiddleware<{ Variables: NewVars }>` reads no vars and sets `NewVars`, so it fits any context. A middleware typed `createMiddleware<ContextEnv<typeof ctx, NewVars>>` reads the vars of `ctx` and sets `NewVars`, so it fits `ctx` and each descendant with more vars. The context gets only the vars that the middleware sets. A set var that `TVars` already has, with the same type or a different type, is `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.` A read var that `TVars` does not have is `This middleware reads vars that the context does not have: <key>`. The `Bindings` of the middleware are added to the bindings of the context. Nothing checks them, because the bindings come from the runtime configuration.
   - On a context with bindings, a middleware typed only with `Variables` does not fit the inline signature, because its `Env` has no `Bindings`. A third signature accepts it and gives the same result as on a context without bindings. `c.env` stays typed in the next middlewares.
   - With a `ContextEnv` middleware, `.middleware<NewVars>(middleware)` is an error: the explicit type argument selects the inline signature, which does not accept a `ContextEnv` middleware. The message says that the type is missing the properties `[READS]` and `[SETS]`. Drop the type argument. For a set-only middleware on a context with vars, the explicit form is also an error.
-  - A `ContextEnv` middleware that sets a var that the context already has is `Cannot redeclare existing var: <key>`. For example, `ContextEnv<typeof ctx, { count: number }>` on a context that has `count` gives this error.
+  - A `ContextEnv` middleware that sets a var that the context already has is `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.` For example, `ContextEnv<typeof ctx, { count: number }>` on a context that has `count` gives this error.
   - A middleware typed `MiddlewareHandler<{ Variables: any }>` makes the vars of the new context `any`, because the inline signature matches it.
   - A middleware typed `{ Variables: SessionVars & TenantVars }` on a context typed `SessionVars` is correct, and it adds `TenantVars`. The inline signature matches the intersection that contains the vars of the context. On a context with bindings, the third signature matches it in the same way.
   - Untyped middlewares, such as `cors()` and `logger()` from Hono, or `every()` and `some()` from `hono/combine`, add no vars.
-  - Known limit: the same middleware applied a second time is not detected. Its `Variables` equal `TVars`, so the inline signature (or the third signature, on a context with bindings) matches it with `NewVars = {}`. The middleware then runs two times. `.middleware<SessionVars>(requireSession)` reports `Cannot redeclare existing var: session` instead. This is the only case where you give a type argument for a reusable middleware.
+  - Known limit: the same middleware applied a second time is not detected. Its `Variables` equal `TVars`, so the inline signature (or the third signature, on a context with bindings) matches it with `NewVars = {}`. The middleware then runs two times. `.middleware<SessionVars>(requireSession)` reports `Cannot redeclare existing var: session. Use another var name, or read session from the context.` instead. This is the only case where you give a type argument for a reusable middleware.
 
 For an inline arrow function, give the new vars as the type argument:
 
@@ -234,7 +234,7 @@ apiContext.middleware(requireSession);
 apiContext.middleware<SessionVars>(requireSession);
 ```
 
-The first line compiles and adds no vars. The second line is the error `Cannot redeclare existing var: session`.
+The first line compiles and adds no vars. The second line is the error `Cannot redeclare existing var: session. Use another var name, or read session from the context.`
 
 Declare each set of vars as a named interface, for example `SessionVars`. Then use the same interface in `createMiddleware<{ Variables: SessionVars }>`, in `.middleware<SessionVars>(handler)`, and in `ContextEnv<typeof context, SessionVars>`. The redeclaration guard also rejects a redeclared interface.
 
@@ -248,7 +248,7 @@ type BindKey<TKey extends string, TVars> = string extends TKey
   ? 'Use a string literal for the key'
   : IsOne<TKey> extends true
     ? TKey extends keyof TVars
-      ? `Cannot redeclare existing var: ${TKey}`
+      ? `Cannot redeclare existing var: ${TKey}. Use another var name, or read ${TKey} from the context.`
       : TKey
     : 'Use one string literal for the key';
 type BindParam<TPath extends string> = Exclude<ParamKeys<TPath>, `${string}?`>;
@@ -266,7 +266,7 @@ type CheckBindLoader<TValue> =
 
 Loads a value from a path param and adds it to the context as a new var. It is the built-in form of the most common context builder. Like `.middleware()`, it returns a new context with a new identity, and it appends one middleware to `middlewares`.
 
-- `key` is the name of the new var. It must be one string literal. A `string` key is a compile error: `Use a string literal for the key`. A union key is a compile error: `Use one string literal for the key`. A key that the context already has gives `Cannot redeclare existing var: <key>`.
+- `key` is the name of the new var. It must be one string literal. A `string` key is a compile error: `Use a string literal for the key`. A union key is a compile error: `Use one string literal for the key`. A key that the context already has gives `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.`
 - `param` is a required param of the context path. An optional `:param?` is not accepted, because a request can match the path without it.
 - `load` gets the value of the param and `c`. `c.var` has the vars of the context, and `c.env` has its bindings. `load` returns the value, `null`, `undefined`, or a promise of one of these.
 - A loader that can return no value is a compile error: `The loader returns no value: return the value of the var, or null when there is none`. Such a loader returns only `null`, `undefined`, `void`, `never`, or a promise of one of these. Without the check, every request to the route gets a 404.
@@ -327,11 +327,11 @@ const loadTenant = createMiddleware<ContextEnv<typeof apiContext, TenantVars>>(
 const tenantContext = apiContext.middleware(loadTenant); // adds only `tenantId`
 ```
 
-The type-only `READS` key records the vars that the middleware reads. The type-only `SETS` key records the vars that it sets, `TNewVars`. No runtime value has these keys. With them, `.middleware()` accepts the middleware on `TContext`. It also accepts the middleware on each context with more vars, such as a `.middleware()` descendant or its children. It adds only `TNewVars`. A context without the read vars gives `This middleware reads vars that the context does not have: <key>`. A `TNewVars` key that the context already has gives `Cannot redeclare existing var: <key>`. Do not pass a type argument to `.middleware()` for this middleware. An exact-type assertion on a `ContextEnv` type also sees the `READS` and `SETS` keys.
+The type-only `READS` key records the vars that the middleware reads. The type-only `SETS` key records the vars that it sets, `TNewVars`. No runtime value has these keys. With them, `.middleware()` accepts the middleware on `TContext`. It also accepts the middleware on each context with more vars, such as a `.middleware()` descendant or its children. It adds only `TNewVars`. A context without the read vars gives `This middleware reads vars that the context does not have: <key>`. A `TNewVars` key that the context already has gives `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.` Do not pass a type argument to `.middleware()` for this middleware. An exact-type assertion on a `ContextEnv` type also sees the `READS` and `SETS` keys.
 
 A chain of `ContextEnv` middlewares, where each middleware is typed from the context of the previous one, type-checks in linear time. Each new context has the vars of the previous context and the `SETS` vars of the middleware.
 
-A `ContextEnv` middleware that sets a var that it also reads gives `Cannot redeclare existing var: <key>`, because the context already has that var.
+A `ContextEnv` middleware that sets a var that it also reads gives `Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context.`, because the context already has that var.
 
 Nothing checks this fit when the middleware is not passed to `.middleware()`. Two cases are a route middleware factory (a `routeMiddleware` entry, which returns an untyped `MiddlewareHandler`) and the `middleware` key of a route config. There, a `ContextEnv` middleware built for one context type-checks in a router of any context. Its handler sees vars that the context does not set.
 

@@ -789,7 +789,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
       });
   });
 
-  // A declared key that the path does not have is an error.
+  // A declared key that the path does not have is an error. `checks.test-d.ts` asserts the message.
   makeRouter(thingById, ({ defineRoute }) => {
     defineRoute('get', {
       // @ts-expect-error The path '/api/orgs/:orgId/things/:id{[0-9]+}' has no param named 'thingId'
@@ -956,6 +956,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   // The two children become one element type, so the routes of one child are lost.
   const plain = [statsRouter, byIdRouter];
 
+  // `checks.test-d.ts` asserts the full message.
   // @ts-expect-error Pass children inline or as const
   mountRouter(root, plain);
   // @ts-expect-error Pass children inline or as const

@@ -19,7 +19,9 @@ interface TestContext<TPath extends string, TVars extends object> extends RouteC
   TVars
 > {
   bindValue: <TKey extends string, TValue>(
-    key: TKey extends keyof TVars ? `Cannot redeclare existing var: "${TKey}"` : TKey,
+    key: TKey extends keyof TVars
+      ? `Cannot redeclare existing var: "${TKey}". Use another var name, or read "${TKey}" from the context.`
+      : TKey,
     param: ParamKeys<TPath>,
     produce: (id: string) => TValue,
   ) => ReaugmentContext<TestContextKind, TPath, TVars & { [K in TKey]: TValue }>;
@@ -321,7 +323,7 @@ const { defineRootContext, defineChildContext } = extendRouteContext<TestContext
     await next();
   });
 
-  // @ts-expect-error Cannot redeclare existing var: tenantId
+  // @ts-expect-error Cannot redeclare existing var: tenantId. Use another var name, or read tenantId from the context.
   tenant.middleware(setTenant);
 
   // A `ContextEnv` middleware in the root array adds only the vars that it sets.

@@ -71,12 +71,12 @@ const ctx = defineChildContext(authed, '/things/:id');
 
 // The key error wins over the loader error.
 {
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   ctx.bind('session', 'id', () => null);
 
   type KeyParam = Parameters<typeof ctx.bind<'session', null>>[0];
 
-  expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: session'>();
+  expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: session. Use another var name, or read session from the context.'>();
 }
 
 // A loader that can return a value compiles.

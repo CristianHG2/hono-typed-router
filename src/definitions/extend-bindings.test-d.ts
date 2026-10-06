@@ -3,6 +3,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { extendRouteContext } from './extend';
 import type { ReaugmentContext, RouteContextBase, RouteContextKind } from './extend';
+import type { BindingsSlot, CheckExtendedMiddlewareFits } from './extend-bindings';
 import { defineRootContext as baseRoot } from './lib';
 import type { ParentContext, RouteContext } from './types';
 
@@ -60,6 +61,10 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
   ext.defineChildContext(withIB, '/x');
   // @ts-expect-error the bindings of the parent are an interface
   ext.defineChildContext<typeof withIB>()('/x');
+
+  expectTypeOf<
+    BindingsSlot<{ DB: Db }>
+  >().toEqualTypeOf<'Extended contexts do not carry Bindings: use defineChildContext from hono-typed-router for a child of a context with bindings'>();
 }
 
 // A middleware that declares `Bindings` is an error in `.middleware()` and in the root array.
@@ -75,6 +80,10 @@ const a = createMiddleware<{ Variables: { a: 1 } }>(async (_c, next) => next());
   ext.defineRootContext('/r', [kv]);
   // @ts-expect-error the second middleware declares `Bindings`
   ext.defineRootContext('/r', [a, kv]);
+
+  expectTypeOf<
+    CheckExtendedMiddlewareFits<typeof kv, {}>
+  >().toEqualTypeOf<'Extended contexts do not carry Bindings: use the contexts of hono-typed-router for a middleware with Bindings'>();
 }
 
 // A parent without bindings is accepted, in both forms. The curried form shows its vars as

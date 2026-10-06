@@ -12,3 +12,6 @@ yarn-error.log*
 .idea
 .vscode
 .vitest
+.claude/
+.agents/
+skills-lock.json

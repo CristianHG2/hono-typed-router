@@ -65,11 +65,21 @@ export type HandlerSets<THandler> = EnvSets<HandlerEnv<THandler>>;
 /** @internal Exported for declaration emit. */
 export type HandlerBindings<THandler> = EnvBindings<HandlerEnv<THandler>>;
 
+/**
+ * The error message for a var that the context already has. It distributes over a union of
+ * keys, so that each message names one key.
+ *
+ * @internal Exported for declaration emit.
+ */
+export type RedeclareMessage<K extends string> = K extends unknown
+  ? `Cannot redeclare existing var: ${K}. Use another var name, or read ${K} from the context.`
+  : never;
+
 /** The check ignores the bindings. */
 type CheckEnvFits<E, TVars> = [Exclude<keyof EnvReads<E>, keyof TVars>] extends [never]
   ? [Extract<keyof EnvSets<E>, keyof TVars>] extends [never]
     ? unknown
-    : `Cannot redeclare existing var: ${Extract<keyof EnvSets<E>, keyof TVars> & string}`
+    : RedeclareMessage<Extract<keyof EnvSets<E>, keyof TVars> & string>
   : `This middleware reads vars that the context does not have: ${Exclude<keyof EnvReads<E>, keyof TVars> & string}`;
 
 /** @internal Exported for declaration emit. */

@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { ParamKeys } from 'hono/types';
-import type { RouterEnv } from './env';
+import type { RedeclareMessage, RouterEnv } from './env';
 
 /**
  * The params that `.bind()` accepts: the required params of the context path. An optional
@@ -23,7 +23,7 @@ export type BindKey<TKey extends string, TVars> = string extends TKey
   ? 'Use a string literal for the key'
   : IsOne<TKey> extends true
     ? TKey extends keyof TVars
-      ? `Cannot redeclare existing var: ${TKey}`
+      ? RedeclareMessage<TKey>
       : TKey
     : 'Use one string literal for the key';
 

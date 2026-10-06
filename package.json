@@ -68,7 +68,7 @@
     "fmt:check": "oxfmt --check",
     "check:docs": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/check-doc-blocks.ts",
     "check:type-budget": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/type-budget.ts",
-    "check": "pnpm typecheck && pnpm test:types && pnpm check:docs && pnpm lint && pnpm fmt:check && pnpm test",
+    "check": "pnpm typecheck && pnpm test:types && pnpm check:docs && pnpm lint && pnpm fmt:check && pnpm test && pnpm check:type-budget && pnpm build",
     "prepare": "lefthook install || true",
     "changeset": "changeset",
     "changeset:version": "changeset version",

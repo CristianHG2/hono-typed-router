@@ -153,7 +153,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf(adminContext.vars).toEqualTypeOf<SessionVars>();
 
   apiContext.middleware(requireSession);
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   apiContext.middleware<SessionVars>(requireSession);
 
   // The second application adds no vars.
@@ -162,7 +162,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
   expectTypeOf<keyof typeof twice.vars>().toEqualTypeOf<'session'>();
 
   // `NoRedeclare` also rejects a redeclared var on an inline middleware.
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   apiContext.middleware<SessionVars>(async (_c, next) => {
     await next();
   });
@@ -211,7 +211,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     },
   );
 
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   apiContext.middleware(flatTenant);
 }
 
@@ -232,7 +232,7 @@ const okResponse = jsonResponse(z.object({ ok: z.boolean() }), 'OK');
     SessionVars & { organization: Organization }
   >();
 
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   organizationContext.bind('session', 'organizationId', () => ({ userId: 'user' }));
 
   // @ts-expect-error `param` must be a param of the context path

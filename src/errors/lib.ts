@@ -152,8 +152,11 @@ type DuplicateTags<
   ? DuplicateTags<TRest, TSeen | ErrorTag<THead>, TDuplicate | (ErrorTag<THead> & TSeen)>
   : TDuplicate;
 
-// Replaces each class that is not valid with an error string that the call site shows.
-type CheckErrorCtors<TCtors extends readonly ErrorCtor[]> = {
+/**
+ * @internal Replaces each class that is not valid with an error string that the call site
+ * shows.
+ */
+export type CheckErrorCtors<TCtors extends readonly ErrorCtor[]> = {
   readonly [I in keyof TCtors]: TCtors[I] extends ErrorCtor
     ? [ErrorTag<TCtors[I]>] extends [never]
       ? `Error class at index ${I & string} needs a literal _tag or name`

@@ -16,5 +16,3 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm check:type-budget
-      - run: pnpm build

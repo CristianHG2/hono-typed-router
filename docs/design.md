@@ -32,7 +32,7 @@ Neither form copies the middlewares of the parent into the child. Mounting the r
 
 `.middleware<NewVars>(handler)` returns a new context with `NewVars` merged into `TVars`. The signature of the handler is constrained to `MiddlewareHandler<{ Variables: TVars & NewVars }, TPath>`. The handler sees what is already in `c.var` and can set the new vars.
 
-With a type argument, a constraint on the type argument blocks redeclaration (`NewVars extends NoRedeclare<NewVars, TVars>`). Each key that is already in `TVars` must be the string `"Cannot redeclare existing var: <key>"`. So `.middleware<{ existing: X }>()` fails once on the type argument, and the handler keeps its contextual types.
+With a type argument, a constraint on the type argument blocks redeclaration (`NewVars extends NoRedeclare<NewVars, TVars>`). Each key that is already in `TVars` must be the string `"Cannot redeclare existing var: <key>. Use another var name, or read <key> from the context."`. So `.middleware<{ existing: X }>()` fails once on the type argument, and the handler keeps its contextual types.
 
 Without a type argument, a pre-typed handler takes a second signature. It splits the `Variables` of the handler into the vars that it reads and the vars that it sets. `ContextEnv<typeof ctx, NewVars>` records the read vars in a type-only `READS` key. A handler without that key reads nothing and sets all its `Variables`. The handler fits when the context has every read var and none of the set vars. So a set-only `createMiddleware<{ Variables: X }>` fits any context. A `ContextEnv` handler fits its context and every descendant with more vars.
 
@@ -173,6 +173,18 @@ So the consumer supplies a self-referential interface that extends `RouteContext
 - Domain coupling. The package has no repository _implementation_, no scope enum, and no auth glue. `extendRouteContext` provides the _mechanism_ to add a `bindRepository`-style builder. `onError` and `handleErrors` provide the mechanism to map domain errors to responses. The actual repositories, error classes, and scope unions stay in userland (see the [usage guide](./usage.md)).
 - A generic "validate this before/after the handler" lifecycle. That is the job of `routeMiddleware`. If Hono middleware can express a use case, use Hono middleware.
 - Catch-all error mapping. Hono's `app.onError` already handles that.
+
+## Rejected designs
+
+Each line names a design that the package does not use, and the reason.
+
+- An object form or a builder form of `makeRouter`. They add a second way to write the same call. The positional form `makeRouter(context, callback, children)` stays.
+- A standalone `defineRoute(context, method, config)`. The full path is known only when the router mounts, so such a route value would be provisional.
+- A `TaggedError` helper. The `_tag` convention does the same job without a new dependency.
+- A new word for a concept that already has a word, such as "policy" for a route middleware factory. The seven words in [Concepts](../README.md#concepts) stay the only words.
+- A higher-order `handle(route, body)` or an endpoint builder. `handle` inside `router.openapi` stays.
+- Full `Bindings` on the contexts of `extendRouteContext`. A tested design costs about 19 percent more type instantiations for each extended chain. The compile error stays until a user asks for the feature.
+- The removal of a 0.x name before 2.0. Each 0.x name keeps a `@deprecated` alias until 2.0, so an upgrade to 1.0 does not break a build.
 
 ## Open questions / future work
 

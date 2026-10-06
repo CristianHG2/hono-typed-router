@@ -8,6 +8,9 @@ pre-commit:
     - name: lint
       glob: '*.{ts,mts,cts,js,mjs,cjs}'
       run: pnpm exec oxlint {staged_files}
+    - name: docs
+      glob: '{*.md,src/*docs.test-d.ts}'
+      run: pnpm check:docs
 
 commit-msg:
   jobs:

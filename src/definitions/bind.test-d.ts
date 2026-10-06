@@ -86,7 +86,7 @@ const authed = defineRootContext('/api').middleware<{ session: Session }>(async 
   // The key parameter of `.bind()` on a context that has `thing` is the error message.
   type KeyParam = Parameters<typeof ctx.bind<'thing', string>>[0];
 
-  expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: thing'>();
+  expectTypeOf<KeyParam>().toEqualTypeOf<'Cannot redeclare existing var: thing. Use another var name, or read thing from the context.'>();
 }
 
 // The key must be one string literal, because `.bind()` sets one var. The union check does

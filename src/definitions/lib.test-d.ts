@@ -4,7 +4,9 @@ import { createMiddleware } from 'hono/factory';
 import type { ParamKeys } from 'hono/types';
 import { createRouter } from '../router';
 import { defineChildContext, defineChildRoute, defineRootContext, defineRootRoute } from './lib';
+import type { CheckMiddlewareFits } from './env';
 import type { ChildPath } from './path';
+import type { CheckRootArray } from './root-array';
 import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './types';
 
 // A root context keeps the literal path type
@@ -320,6 +322,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error This middleware reads vars that the context does not have: requestId
   defineRootContext('/public').middleware(loadSession);
 
+  expectTypeOf<
+    CheckMiddlewareFits<typeof loadSession, {}>
+  >().toEqualTypeOf<'This middleware reads vars that the context does not have: requestId'>();
+
   // An Env with only the new vars (no `READS` key) sets them and fits a context with other vars.
   const onlySession = createMiddleware<{ Variables: { session: Session } }>(async (_c, next) => {
     await next();
@@ -347,8 +353,22 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     },
   );
 
-  // @ts-expect-error Cannot redeclare existing var: count
+  // @ts-expect-error Cannot redeclare existing var: count. Use another var name, or read count from the context.
   withCount.middleware(increment);
+
+  // Each message names one var.
+  expectTypeOf<
+    CheckMiddlewareFits<typeof increment, { count: number; total: number }>
+  >().toEqualTypeOf<'Cannot redeclare existing var: count. Use another var name, or read count from the context.'>();
+  expectTypeOf<
+    CheckMiddlewareFits<
+      ReturnType<typeof createMiddleware<{ Variables: { a: 1; b: 2 } }>>,
+      { a: 1; b: 2 }
+    >
+  >().toEqualTypeOf<
+    | 'Cannot redeclare existing var: a. Use another var name, or read a from the context.'
+    | 'Cannot redeclare existing var: b. Use another var name, or read b from the context.'
+  >();
 }
 
 // A chain of 24 `ContextEnv` middlewares keeps a linear check time because of the `SETS` key.
@@ -465,14 +485,14 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
     await next();
   });
 
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   api.middleware(otherType);
 
   const sameType = createMiddleware<{ Variables: { session: Session; x: 1 } }>(async (_c, next) => {
     await next();
   });
 
-  // @ts-expect-error Cannot redeclare existing var: session
+  // @ts-expect-error Cannot redeclare existing var: session. Use another var name, or read session from the context.
   api.middleware(sameType);
 
   // Limit: a second use of the same middleware is not an error. The inline signature matches
@@ -698,6 +718,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   // @ts-expect-error Middlewares in the array declare the same var with different types: id
   defineRootContext('/api', [stringId, numberId]);
 
+  expectTypeOf<
+    CheckRootArray<[typeof stringId, typeof numberId]>
+  >().toEqualTypeOf<'Middlewares in the array declare the same var with different types: id'>();
+
   // A narrower type is also a different type.
   // @ts-expect-error Middlewares in the array declare the same var with different types: id
   defineRootContext('/api', [stringId, literalId]);
@@ -738,6 +762,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
   const mixed = [a, b];
   // @ts-expect-error Pass the middlewares as a tuple literal or as const: an array variable with mixed middlewares has one union element type
   defineRootContext('/api', mixed);
+
+  expectTypeOf<
+    CheckRootArray<typeof mixed>
+  >().toEqualTypeOf<'Pass the middlewares as a tuple literal or as const: an array variable with mixed middlewares has one union element type'>();
   // The spread form is also an error, but TypeScript reports it on each element without the
   // message.
   // @ts-expect-error the element type of `mixed` is a union
@@ -786,6 +814,10 @@ import type { ChildRouteFn, ContextEnv, READS, RouteContext, SETS } from './type
 
   // @ts-expect-error This middleware reads vars that the root context does not have: session
   defineRootContext('/api', [loadTenant]);
+
+  expectTypeOf<
+    CheckRootArray<[typeof loadTenant]>
+  >().toEqualTypeOf<'This middleware reads vars that the root context does not have: session'>();
 }
 
 // `middlewares` is optional: a root without middlewares has no vars.

@@ -7,6 +7,7 @@ import type {
   HandlerBindings,
   HandlerSets,
   READS,
+  RedeclareMessage,
   RouterEnv,
   SETS,
 } from './env';
@@ -21,9 +22,7 @@ export type { HandlerReads, HandlerSets, HandlerVars, READS, SETS } from './env'
  * @internal Exported for declaration emit.
  */
 export type NoRedeclare<TNew, TOld> = {
-  [K in keyof TNew]: K extends keyof TOld
-    ? `Cannot redeclare existing var: ${K & string}`
-    : TNew[K];
+  [K in keyof TNew]: K extends keyof TOld ? RedeclareMessage<K & string> : TNew[K];
 };
 
 export interface MiddlewareFactory<
