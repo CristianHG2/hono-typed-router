@@ -195,6 +195,36 @@ After the request, `calls` is `['timing', 'noStore', 'setRequestId', 'setLog', '
 
 The usage guide shows [the outer app](./docs/usage.md#composing-with-regular-hono-middleware), [route middleware factories](./docs/usage.md#middleware-for-every-route-with-route-middleware-factories), and [the `middleware` key of a route](./docs/usage.md#middleware-for-a-single-route). The API reference gives the type rules of [the root array](./docs/api.md#definerootcontextpath-middlewares), of [`.middleware()`](./docs/api.md#routecontexttpath-tvars-tbindings), and of [`routeDefaults.middleware`](./docs/api.md#createrouteroptions).
 
+## Observability
+
+The library gives you three things for logs, metrics, and traces. First, each route middleware factory gets `meta.path`, the full declared path of the route, for example `/api/things/:id`. This path is the same for all requests to the route, so it is a stable label for a log line or a metric. Second, give each middleware a function name. Then `showRoutes` and `inspectRoutes` of `hono/dev` and stack traces show it. Third, an error that an error arm handles becomes a response, so your error reporter does not see it. An error that no arm handles goes to `app.onError` of Hono, where your error reporter gets it.
+
+To report the declared route to OpenTelemetry, add `@hono/otel` 1.2.0 or later to the outer app, before the routes:
+
+<!-- doc-check: skip -->
+
+```ts
+import { httpInstrumentationMiddleware } from '@hono/otel';
+import { OpenAPIHono } from '@hono/zod-openapi';
+import type { Context } from 'hono';
+import { matchedRoutes, routePath } from 'hono/route';
+
+const route = (c: Context) => matchedRoutes(c).find((r) => r.method !== 'ALL')?.path;
+
+const server = new OpenAPIHono();
+server.use(
+  httpInstrumentationMiddleware({
+    getRoute: route,
+    spanNameFactory: (c) => `${c.req.method} ${route(c) ?? routePath(c)}`,
+  }),
+);
+server.route('/', mountRouter(apiContext, [thingsRouter]));
+```
+
+A context middleware is registered on the whole subtree, so without `getRoute`, a 401 from it gives the span name `GET /api/things/*` and not `GET /api/things/:id`.
+
+Each backend that receives OTLP gets these spans through the OTLP exporter of the OpenTelemetry SDK. Examples are Datadog, Grafana Tempo, Honeycomb, New Relic, and Jaeger. The usage guide section [Observability](./docs/usage.md#observability) shows the SDK setup, per-route logs, the configuration for Datadog and Sentry, and error reports.
+
 ## Mistakes the compiler does not catch
 
 These mistakes compile, but the app does not do what you expect. Each line links to the full rule.

@@ -1364,6 +1364,8 @@ The middlewares of the outer app run before all the middlewares of the contexts.
 
 ## Observability
 
+This section shows how to send logs, metrics, traces, and error reports for an app. The library gives three things for this. Each route middleware factory gets `meta.path`, the full declared path of the route. The middlewares of the library have function names. And the error arms decide which errors reach your error reporter. The examples use `@hono/otel` 1.2.0, `@opentelemetry/sdk-node` 0.222.0, `@sentry/hono` 11.4.0, and `dd-trace` 6.19.0.
+
 ### Name your route middleware factories
 
 The `showRoutes(app, { verbose: true })` and `inspectRoutes` functions of `hono/dev` show a middleware by its function name. Stack traces also show it by this name. An inline arrow that a route middleware factory returns has no name. Return a named function expression instead, or set the name with `Object.defineProperty(fn, 'name', { value: '...' })`:
@@ -1382,9 +1384,36 @@ const makeRouter = createRouter({
 
 `createMiddleware` from `hono/factory` returns the function that you give it. To name the middleware, give `createMiddleware` a named function, for example `createMiddleware(async function auditLog(c, next) { ... })`.
 
+### Per-route metrics and logs with a route middleware factory
+
+A route middleware factory gets the route config and `meta`. Use `route.method` and `meta.path` as the labels of a log line or a metric. This route middleware factory writes one JSON log line for each request, with the duration of the request:
+
+```ts
+const makeRouter = createRouter({
+  routeMiddleware: (route, meta) =>
+    async function requestLog(c, next) {
+      const start = performance.now();
+      await next();
+      console.info(
+        JSON.stringify({
+          route: `${route.method.toUpperCase()} ${meta.path}`,
+          status: c.res.status,
+          durationMs: Math.round(performance.now() - start),
+        }),
+      );
+    },
+});
+```
+
+`meta.path` is the full mounted path of the route in Hono syntax, for example `/api/things/:id`. It is the same for all requests to the route, so a metric with this label has one series for each route. Do not use `c.req.path` as a label. It is the concrete URL, for example `/api/things/42`, so each id makes a new series. To send a metric instead of a log line, give the same two labels and the duration to your metrics client.
+
+The line also has the status of an error that the app turned into a response. If the handler throws, Hono runs `app.onError` inside `next()`, so `c.res.status` is the status of the error response, for example 500.
+
+A route middleware factory runs only for a declared route, after the context middlewares. If a context middleware returns a response, for example a 401, this middleware does not run and writes no line. To count these requests, use a middleware on the outer app, or the `http.server.request.duration` metric of `@hono/otel` in the next section.
+
 ### Report the declared route to OpenTelemetry
 
-`@hono/otel` gets the span name from the handler that ran when the app produced the response. A context middleware is registered on the whole subtree. If it returns a 401, the span reads `GET /api/things/*` instead of `GET /api/things`. Instead, take the first matched route that is not a subtree middleware. `getRoute` needs `@hono/otel` 1.2.0 or later. Register the instrumentation before you mount routes, because Hono runs middleware in registration order:
+`@hono/otel` gets the span name from the handler that ran when the app produced the response. A context middleware is registered on the whole subtree. If it returns a 401, the span reads `GET /api/things/*` instead of `GET /api/things/:id`. Instead, take the first matched route that is not a subtree middleware. `getRoute` needs `@hono/otel` 1.2.0 or later. Version 1.1.2 does not have it. Register the instrumentation before you mount routes, because Hono runs middleware in registration order:
 
 <!-- doc-check: skip -->
 
@@ -1406,9 +1435,132 @@ server.use(
 server.route('/', mountRouter(apiContext, [thingsRouter]));
 ```
 
-`getRoute` sets the `http.route` attribute. `spanNameFactory` sets the name of the span. On a 404, no route matches, so the span name uses `routePath(c)`.
+`getRoute` sets the `http.route` attribute of the span. It also sets the `http.route` label of the `http.server.request.duration` histogram that `@hono/otel` records. `spanNameFactory` sets the name of the span. With this configuration, these requests to a route at `/api/things/:id` give these span names:
+
+| Request                                   | Status | Span name             |
+| ----------------------------------------- | ------ | --------------------- |
+| A request that the handler answers        | 200    | `GET /api/things/:id` |
+| A 401 from a context middleware           | 401    | `GET /api/things/:id` |
+| A 403 from `createScopeMiddleware`        | 403    | `GET /api/things/:id` |
+| An error that a `matchErrors` arm handles | 404    | `GET /api/things/:id` |
+| An error that goes to `app.onError`       | 500    | `GET /api/things/:id` |
+| A path with no route                      | 404    | `GET /*`              |
+
+On a 404 for a path with no route, no route matches, so the span name uses `routePath(c)`. This is the path of the instrumentation middleware, `/*`.
 
 `find` picks the outermost method-specific match. It is a heuristic. With overlapping routes such as `/items/me` and `/items/:id`, it reports the route that Hono registered first.
+
+### Set up the OpenTelemetry SDK
+
+`@hono/otel` uses the OpenTelemetry API. Without an SDK, the API does nothing, and no span leaves the process. On Node, start the SDK in a separate file, before the app loads. This `instrumentation.ts` file sends traces and metrics with OTLP over HTTP:
+
+<!-- doc-check: skip -->
+
+```ts
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { metrics, NodeSDK } from '@opentelemetry/sdk-node';
+
+const sdk = new NodeSDK({
+  serviceName: 'things-api',
+  traceExporter: new OTLPTraceExporter(),
+  metricReaders: [
+    new metrics.PeriodicExportingMetricReader({ exporter: new OTLPMetricExporter() }),
+  ],
+});
+
+sdk.start();
+
+process.on('SIGTERM', () => {
+  sdk.shutdown().finally(() => process.exit(0));
+});
+```
+
+Install `@opentelemetry/sdk-node`, `@opentelemetry/exporter-trace-otlp-http`, and `@opentelemetry/exporter-metrics-otlp-http`. Compile the file with the rest of the app. Then load it with `--import`, and give the address of the OTLP receiver in `OTEL_EXPORTER_OTLP_ENDPOINT`:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 node --import ./instrumentation.js server.js
+```
+
+The exporters add `/v1/traces` and `/v1/metrics` to the endpoint. Put a token or an API key in `OTEL_EXPORTER_OTLP_HEADERS`, for example `api-key=<key>`. On `SIGTERM`, `sdk.shutdown()` sends the spans and the metrics that are still in memory. Then the process stops.
+
+On Cloudflare Workers, `@opentelemetry/sdk-node` does not run. The README of `@hono/otel` points to `@microlabs/otel-cf-workers` for Workers. The last release of that package is `1.0.0-rc.52`, from May 2025. For a maintained setup on Workers, use the Sentry SDK in [the next section](#send-the-data-to-an-apm-backend).
+
+### Send the data to an APM backend
+
+An APM backend (application performance monitoring) stores the traces, metrics, and errors and shows them. Each backend below receives the data from the setup above, or from its own SDK.
+
+<!-- source: https://docs.datadoghq.com/opentelemetry/setup/otlp_ingest_in_the_agent -->
+
+Datadog with OTLP: turn on the OTLP receiver of the Datadog Agent. Set `DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT=0.0.0.0:4318` on the Agent. Then set `OTEL_EXPORTER_OTLP_ENDPOINT=http://<agent host>:4318` on the app.
+
+<!-- source: https://github.com/DataDog/datadog-agent/blob/main/pkg/trace/transform/otelutil.go -->
+
+The Agent makes the resource name of a server span from `http.request.method` and `http.route`. Thus with `getRoute`, the resource name is `GET /api/things/:id`, also for a 401 from a context middleware. The source code of the Agent shows this rule, in `getOTelResourceV2`.
+
+<!-- source: https://docs.datadoghq.com/tracing/trace_collection/compatibility/nodejs/ -->
+<!-- source: https://docs.datadoghq.com/tracing/trace_collection/dd_libraries/nodejs/ -->
+
+Datadog with `dd-trace`: the Node tracer of Datadog supports `hono` 4 and later. Start the app with `node --import dd-trace/initialize.mjs server.js`. This setup does not need `@hono/otel`. `dd-trace` sets the resource name to the method and the path of the route that ran. A context middleware is registered on the subtree, so a 401 from it gets the resource `GET /api/things/*`, not `GET /api/things/:id`. A 403 from `createScopeMiddleware` gets `GET /api/things/:id`, because the router registers it on the route. If you need the declared route on every request, use the OTLP setup above.
+
+<!-- source: https://docs.sentry.io/platforms/javascript/guides/hono/ -->
+
+Sentry: use `@sentry/hono`, the Hono SDK of Sentry. It replaces the community middleware `@hono/sentry`, which is deprecated. On Node, install `@sentry/hono` and `@sentry/node`. Then call `Sentry.init` in an `instrument.ts` file that you load with `--import`:
+
+<!-- doc-check: skip -->
+
+```ts
+import * as Sentry from '@sentry/hono/node';
+
+Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 1.0 });
+```
+
+Add the `sentry` middleware to the outer app, before the routes:
+
+<!-- doc-check: skip -->
+
+```ts
+import { sentry } from '@sentry/hono/node';
+
+const server = new OpenAPIHono();
+server.use(sentry(server));
+server.route('/', app);
+```
+
+The `sentry` middleware names the transaction with the method and the path of the route handler that matched. Thus a 401 from a context middleware also gets `GET /api/things/:id`, and you do not need a configuration for the name. On Cloudflare Workers, import `sentry` from `@sentry/hono/cloudflare`, give it the options as its second argument, and set the `nodejs_compat` compatibility flag.
+
+<!-- source: https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/ -->
+
+Other OTLP backends: Grafana Cloud (Tempo), Honeycomb, New Relic, and Jaeger receive OTLP. Use the SDK setup above, and set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` to the values of the backend. Honeycomb uses `https://api.honeycomb.io` and the header `x-honeycomb-team=<key>`. New Relic uses `https://otlp.nr-data.net:4318` and the header `api-key=<license key>`. New Relic recommends OTLP with protobuf, which the `@opentelemetry/exporter-trace-otlp-proto` and `@opentelemetry/exporter-metrics-otlp-proto` exporters send. Grafana Cloud gives the values on the OpenTelemetry tile of the stack. A local Jaeger receives OTLP on `http://localhost:4318`. These backends read the span name and `http.route`, so the `getRoute` configuration above gives the declared route.
+
+### Report errors
+
+The library has an `onError(ErrorClass, handler)` function, and Hono has an `app.onError(handler)` method. They are different. The `onError` function of the library makes an error arm for `handle`. The `app.onError` method of Hono receives each error that no arm handles. Put your error reporter in `app.onError` of the outer app:
+
+```ts
+const server = new OpenAPIHono();
+server.route('/', app);
+server.onError((err, c) => {
+  reportError(err);
+
+  return c.json({ error: 'E_INTERNAL' }, 500);
+});
+```
+
+These rules tell you which errors reach the reporter:
+
+- An error that a `matchErrors` or `onError` arm handles becomes a response, for example a 404. It is not an unhandled error. `app.onError` does not see it, and `@hono/otel` and Sentry do not record an exception for it.
+- An arm that returns `rethrow()` gives the error to the next arm. If no arm handles it, `handle` throws the original error, and Hono gives it to `app.onError`. `@hono/otel` then records the exception on the span and sets the span status to error. The `sentry` middleware reports it.
+- An error in an arm handler keeps the original error as its `cause`, if it has no `cause`. Thus the report shows both errors. A `cause` that you set with `new Error(message, { cause })` also stays.
+- The router throws a `TypeError` for a mistake in the routes, for example two routes with the same method and path. It throws when you call `mountRouter` or a router, at startup, before the first request. Thus no request span or error report has this error. Your process manager or your deploy log shows it.
+
+<!-- source: @sentry/server-utils 11.4.0, build/esm/integrations/hono/defaultShouldHandleError.js -->
+
+The `sentry` middleware does not report an error that has a 3xx or 4xx `status` property, for example an `HTTPException` with a 404. This is its default.
+
+### Scope middleware and audit logs
+
+`createScopeMiddleware` names its middleware `requireScopes:<scopes>`, for example `requireScopes:things.read`. `showRoutes`, stack traces, and the `handler.name` of each match in `matchedRoutes(c)` show this name. Thus a log line can tell which scope check matched a forbidden request. To write an audit event for a 403, use the `onForbidden` option: it gets the missing scopes and the context of the request, and its return value is the body of the 403.
 
 ## Scaling
 

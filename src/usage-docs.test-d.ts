@@ -1297,6 +1297,41 @@ declare const findMembership: (
   expectTypeOf(makeRouter).toBeFunction();
 }
 
+// usage.md "Per-route metrics and logs with a route middleware factory".
+{
+  const makeRouter = createRouter({
+    routeMiddleware: (route, meta) =>
+      async function requestLog(c, next) {
+        const start = performance.now();
+        await next();
+        console.info(
+          JSON.stringify({
+            route: `${route.method.toUpperCase()} ${meta.path}`,
+            status: c.res.status,
+            durationMs: Math.round(performance.now() - start),
+          }),
+        );
+      },
+  });
+
+  expectTypeOf(makeRouter).toBeFunction();
+}
+
+// usage.md "Report errors": `server.onError` is the method of Hono, not the arm of the library.
+declare const reportError: (err: Error) => void;
+
+{
+  const server = new OpenAPIHono();
+  server.route('/', app);
+  server.onError((err, c) => {
+    reportError(err);
+
+    return c.json({ error: 'E_INTERNAL' }, 500);
+  });
+
+  expectTypeOf(server.fetch).toBeFunction();
+}
+
 // usage.md "Migrating from 0.x": the deprecated names are the same functions.
 {
   const apiContext = defineRootRoute('/api');
